@@ -1,5 +1,5 @@
 import time
-from src.sync import sync_data
+from analyzer.sync import sync_data
 
 def test_sync_under_load():
     start = time.time()

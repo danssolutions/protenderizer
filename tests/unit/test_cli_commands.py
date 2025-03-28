@@ -1,5 +1,5 @@
 from click.testing import CliRunner
-from src.cli import cli
+from analyzer.cli import cli
 
 def test_cli_help():
     runner = CliRunner()

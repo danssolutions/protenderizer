@@ -1,4 +1,4 @@
-from src.ml import detect_outliers
+from analyzer.ml import detect_outliers
 import numpy as np
 
 def test_detect_outliers_simple_case():

@@ -2,9 +2,10 @@
 Tool for analyzing EU public procurement data
 
 For the rest of the group: 
+
 Install the dependencies first:
 
-pip install pytest pytest-mock requests-mock pytest-benchmark
+pip install pytest pytest-mock requests-mock pytest-benchmark click scikit-learn 
 
 Then run tests:
 

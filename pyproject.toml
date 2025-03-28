@@ -1,0 +1,15 @@
+[project]
+name = "protenderizer"
+version = "0.1.0"
+description = "An intelligent tool for monitoring and analyzing EU public procurement data."
+requires-python = ">=3.8"
+dependencies = [
+    "click",
+    "requests",
+    "pandas",
+    "scikit-learn",
+    "sqlalchemy"
+]
+
+[project.scripts]
+protenderizer = "analyzer.cli:cli"

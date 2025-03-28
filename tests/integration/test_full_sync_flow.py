@@ -1,15 +1,15 @@
-from src.sync import sync_data
+from analyzer.sync import sync_data
 
 def test_full_sync(monkeypatch):
     dummy_data = [{"id": "TED001"}]
 
-    def mock_fetch_new_notices():
+    def mock_fetch_notices():
         return dummy_data
 
-    def mock_store_notices(data):
+    def mock_insert_notices(data):
         assert data == dummy_data
 
-    monkeypatch.setattr("src.sync.fetch_new_notices", mock_fetch_new_notices)
-    monkeypatch.setattr("src.sync.store_notices", mock_store_notices)
+    monkeypatch.setattr("analyzer.sync.fetch_notices", mock_fetch_notices)
+    monkeypatch.setattr("analyzer.sync.insert_notice", mock_insert_notices)
 
     sync_data()

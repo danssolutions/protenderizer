@@ -1,5 +1,5 @@
 import pytest
-from src.storage import SQLStorage, NoSQLStorage
+from analyzer.storage import SQLStorage, NoSQLStorage
 
 @pytest.mark.parametrize("storage_cls", [SQLStorage, NoSQLStorage])
 def test_store_and_retrieve(storage_cls):

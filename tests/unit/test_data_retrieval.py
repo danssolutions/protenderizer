@@ -1,6 +1,6 @@
 import pytest
 import requests
-from src.api import fetch_notices
+from analyzer.api import fetch_notices
 
 def test_fetch_notices_success(requests_mock):
     mock_url = "https://ted.europa.eu/api/notices?page=1"

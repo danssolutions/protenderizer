@@ -1,4 +1,4 @@
-from src.preprocessing import clean_notice
+from analyzer.preprocessing import clean_notice
 
 def test_clean_notice_missing_fields():
     raw = {"id": "TED001", "value": None}

@@ -1,5 +1,5 @@
 import sqlite3
-from src.storage import insert_notice, get_notice_by_id
+from analyzer.storage import insert_notice, get_notice_by_id
 
 def test_insert_and_get_notice():
     conn = sqlite3.connect(":memory:")

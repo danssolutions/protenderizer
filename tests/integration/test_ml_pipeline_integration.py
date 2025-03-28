@@ -1,4 +1,4 @@
-from src.pipeline import analyze_procurement
+from analyzer.pipeline import analyze_procurement
 
 def test_pipeline_flags_outliers():
     notices = [{"id": "001", "value": 1000}, {"id": "002", "value": 1}]
