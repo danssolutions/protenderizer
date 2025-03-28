@@ -1,28 +1,30 @@
 # protenderizer
 Tool for analyzing EU public procurement data
 
-For the rest of the group: 
+## Installation
 
-Install the dependencies first:
+In the root directory, run from CMD or VSCode:
+`pip install -e .`
 
-pip install pytest pytest-mock requests-mock pytest-benchmark click scikit-learn 
+Then, you can run from any directory:
+`protenderizer <command>`
 
-Then run tests:
+For example:
+`protenderizer --help`
 
-# Run all tests
+After making changes to any dependencies, just rerun `pip install -e .` again before testing.
+
+## Running tests
 pytest
 
-# Run only unit tests
+### Run only unit tests
 pytest tests/unit
 
-# Run only integration tests
-pytest -m integration
+### Run only integration tests
+pytest tests/integration
 
-# Run performance tests
-pytest -m performance
+### Run only performance tests
+pytest tests/performance
 
-# Show detailed output
+### Show detailed output
 pytest -v
-
-# With coverage (optional)
-pytest --cov=myapp tests/
