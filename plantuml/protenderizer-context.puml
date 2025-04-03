@@ -1,0 +1,17 @@
+@startuml protenderizer
+!include <C4/C4_Context.puml>
+
+LAYOUT_TOP_DOWN()
+'LAYOUT_AS_SKETCH()
+LAYOUT_WITH_LEGEND()
+
+title Protenderizer Context diagram 
+
+Person(user, "User", "User of the system")
+System(main_system, "Main System", "- Retrieves TED API data\n- Analyzes data for outliers\n- Provides analysis results to users")
+
+System_Ext(ted, "TED Open Data API", "External system for storing raw procurement data")
+
+Rel(user, main_system, "Views procurement data with trends and outliers")
+Rel(main_system, ted, "Retrieves raw data from")
+@enduml

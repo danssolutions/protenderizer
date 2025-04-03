@@ -1,0 +1,23 @@
+@startuml protenderizer
+!include <C4/C4_Container.puml>
+
+LAYOUT_TOP_DOWN()
+'LAYOUT_AS_SKETCH()
+LAYOUT_WITH_LEGEND()
+
+title Protenderizer Container Diagram
+
+Person(user, "User", "User of the system")
+
+System_Ext(ted, "TED Open Data API", "External system for storing raw procurement data")
+
+Container_Boundary(main_system, "Protenderizer") {
+    Container(application, "Application", "Python, ML stack", "Processing the data and provides it to the user")
+    ContainerDb(data_storage, "Data Storage", "PostgreSQL", "Stores preprocessed data")
+}
+
+Rel(user, application, "Views procurement data with trends and outliers")
+Rel(application, ted, "Retrieves raw data from")
+Rel(application, data_storage, "Reads from and writes to")
+
+@enduml
