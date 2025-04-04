@@ -11,9 +11,9 @@ Person(user, "User", "User of the system")
 
 System_Ext(ted, "TED Open Data API", "External system for storing raw procurement data")
 
-Container_Boundary(main_system, "Protenderizer") {
-    Container(application, "Application", "Python, ML stack", "Processing the data and provides it to the user")
-    ContainerDb(data_storage, "Data Storage", "PostgreSQL", "Stores preprocessed data")
+Container_Boundary(main_system, "Main System") {
+    Container(application, "Protenderizer", "Python, ML stack", "Processes the data and provides it to the user")
+    ContainerDb(data_storage, "Data Store", "PostgreSQL", "Stores preprocessed and analyzed data")
 }
 
 Rel(user, application, "Views procurement data with trends and outliers")
