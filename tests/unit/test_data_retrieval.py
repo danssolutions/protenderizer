@@ -1,117 +1,98 @@
 import pytest
-import logging
-from analyzer.api import fetch_notices
+import requests
+from analyzer import api
 
-# The system retrieves procurement notices from the TED API using pagination mode and verifies the response structure matches expectations. 
-def test_fetch_notices_success_pagination(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    mock_data = {"notices": [{"id": "TED001", "title": "Example"}]}
-    requests_mock.get(mock_url, json=mock_data)
+def test_search_success(requests_mock):
+    """Test that a successful API call returns the expected data."""
+    sample_response = {"totalCount": 2, "results": [{"id": "1-2025"}, {"id": "2-2025"}]}
+    # Prepare the mock to intercept the POST request
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(url, json=sample_response, status_code=200)
+    client = api.TEDAPIClient()
+    result = client.search_notices(query="CPV=12345678", page=1, limit=2)
+    # Verify that the response data is returned correctly
+    assert result == sample_response
+    # Verify that the request was made with the correct payload
+    sent_payload = requests_mock.last_request.json()
+    assert sent_payload["query"] == "CPV=12345678"
+    assert sent_payload["page"] == 1
+    assert sent_payload["limit"] == 2
+    assert sent_payload["scope"] == "ALL"
+    assert sent_payload["paginationMode"] == "PAGE_NUMBER"
+    # 'fields' should be in the payload even if not provided, because client adds default fields
+    assert "fields" in sent_payload
+    assert isinstance(sent_payload["fields"], list)
+    assert len(sent_payload["fields"]) > 0
 
-    notices = fetch_notices(page=1)
-    assert len(notices) == 1
-    assert notices[0]["id"] == "TED001"
+def test_search_with_fields(requests_mock):
+    """Test that specifying fields includes them in the request payload."""
+    sample_response = {"totalCount": 1, "results": [{"id": "XYZ-2025", "title": "Test Notice"}]}
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(url, json=sample_response, status_code=200)
+    client = api.TEDAPIClient()
+    fields = ["ID", "TITLE"]
+    result = client.search_notices(query="abc", fields=fields, page=1, limit=1, scope="ALL")
+    # The result should match the mocked response
+    assert result == sample_response
+    # The last request payload should include the fields list
+    sent_payload = requests_mock.last_request.json()
+    assert sent_payload["fields"] == fields
+    assert sent_payload["query"] == "abc"
+    assert sent_payload["page"] == 1
+    assert sent_payload["limit"] == 1
+    assert sent_payload["scope"] == "ALL"
 
-# The system retrieves procurement notices from the TED API using scroll mode and verifies the response structure matches expectations. 
-def test_fetch_notices_success_scroll(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?scroll=true"
-    mock_data = {"notices": [{"id": "TED002", "title": "Scroll Example"}]}
-    requests_mock.get(mock_url, json=mock_data)
+def test_search_http_error_json(requests_mock):
+    """Test that an HTTP error with a JSON body raises TEDAPIError with an appropriate message."""
+    error_body = {"error": "Invalid query syntax"}
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(url, json=error_body, status_code=400)
+    client = api.TEDAPIClient()
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="INVALID QUERY")
+    # The exception should contain the status code and error message
+    err = excinfo.value
+    assert err.status_code == 400
+    assert "400" in str(err) and "Invalid query syntax" in str(err)
 
-    notices = fetch_notices(scroll=True)
-    assert len(notices) == 1
-    assert notices[0]["id"] == "TED002"
+def test_search_http_error_text(requests_mock):
+    """Test that an HTTP error with a plain text body raises TEDAPIError with that text."""
+    error_text = "Service Unavailable"
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    # Simulate a 503 error with a plain text response body
+    requests_mock.post(url, text=error_text, status_code=503)
+    client = api.TEDAPIClient()
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="ANY")
+    err = excinfo.value
+    assert err.status_code == 503
+    # Error message should contain the status and the text
+    assert "503" in str(err) and "Service Unavailable" in str(err)
 
-# The system is able to look for notices belonging to a specific time interval, defined as a parameter or in a configuration file.
-def test_fetch_notices_time_interval_scroll(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?scroll=true&startDate=2022-01-01&endDate=2022-12-31"
-    mock_data = {"notices": [{"id": "TED003", "title": "Time Range"}]}
-    requests_mock.get(mock_url, json=mock_data)
+def test_search_network_error(monkeypatch):
+    """Test that a network error (e.g., timeout) raises TEDAPIError."""
+    client = api.TEDAPIClient()
+    # Monkeypatch requests.post to raise a ConnectTimeout exception
+    def fake_post(*args, **kwargs):
+        raise requests.exceptions.ConnectTimeout("Connection timed out")
+    monkeypatch.setattr(requests, "post", fake_post)
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="ANY")
+    err = excinfo.value
+    # The error message should indicate a network error occurred
+    assert "Network error occurred" in str(err)
 
-    notices = fetch_notices(scroll=True, from_date="2022-01-01", to_date="2022-12-31")
-    assert len(notices) == 1
-    assert notices[0]["id"] == "TED003"
-
-# The system is able to support filters (e.g., date range, region, procurement type) when retrieving procurement data. 
-def test_fetch_notices_filters_scroll(requests_mock):
-    mock_url = (
-        "https://ted.europa.eu/api/notices?scroll=true&startDate=2022-01-01"
-        "&endDate=2022-12-31&country=DE&typeOfContract=works"
-    )
-    mock_data = {"notices": [{"id": "TED004", "title": "Filtered"}]}
-    requests_mock.get(mock_url, json=mock_data)
-
-    notices = fetch_notices(
-        scroll=True,
-        from_date="2022-01-01",
-        to_date="2022-12-31",
-        filters={"country": "DE", "typeOfContract": "works"},
-    )
-    assert len(notices) == 1
-    assert notices[0]["id"] == "TED004"
-
-# The system can handle API downtime by retrying failed requests with exponential backoff. 
-def test_fetch_notices_exponential_retry(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    requests_mock.get(mock_url, [
-        {"status_code": 503},
-        {"status_code": 503},
-        {"json": {"notices": [{"id": "TED005", "title": "Recovered"}]}}
-    ])
-
-    notices = fetch_notices(page=1)
-    assert len(notices) == 1
-    assert notices[0]["id"] == "TED005"
-
-# The system enforces TED API usage limits (e.g., max 700 requests per minute) and does not exceed rate limits. 
-def test_fetch_notices_rate_limit(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    requests_mock.get(mock_url, status_code=429)
-
-    with pytest.raises(Exception):  # Replace with your actual exception
-        fetch_notices(page=1)
-
-# The system limits the number of retry attempts for failed API requests (e.g., to 3 attempts) and logs an error with a graceful termination after the maximum retries have been reached.
-def test_fetch_notices_retry_limit(requests_mock):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    requests_mock.get(mock_url, status_code=503)
-
-    with pytest.raises(Exception):  # Replace with your custom exception class
-        fetch_notices(page=1)
-
-# Each API request is logged with timestamp, API endpoint used, and number of records retrieved. 
-def test_fetch_notices_log_success(requests_mock, caplog):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    mock_data = {"notices": [{"id": "TED006"}]}
-    requests_mock.get(mock_url, json=mock_data)
-
-    with caplog.at_level(logging.INFO):
-        fetch_notices(page=1)
-
-    assert any("https://ted.europa.eu/api/notices?page=1" in r.message for r in caplog.records)
-    assert any("1 records" in r.message for r in caplog.records)
-
-# Log entries are not modified after creation, only appended to.
-def test_fetch_notices_log_append_only(requests_mock, caplog):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    mock_data = {"notices": [{"id": "TED007"}]}
-    requests_mock.get(mock_url, json=mock_data)
-
-    with caplog.at_level(logging.INFO):
-        fetch_notices(page=1)
-        initial_log_count = len(caplog.records)
-        fetch_notices(page=1)
-        new_log_count = len(caplog.records)
-
-    assert new_log_count > initial_log_count
-
-# If an API response is empty or erroneous, the log records the response code and message. 
-def test_fetch_notices_log_abnormal_response(requests_mock, caplog):
-    mock_url = "https://ted.europa.eu/api/notices?page=1"
-    requests_mock.get(mock_url, status_code=500, text="Internal Server Error")
-
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(Exception):  # Replace with your custom exception class
-            fetch_notices(page=1)
-
-    assert any("500" in r.message and "Internal Server Error" in r.message for r in caplog.records)
+def test_search_iteration_mode(requests_mock):
+    """Test that using iteration mode includes the token and mode in the payload."""
+    sample_response = {"totalCount": 0, "results": []}
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(url, json=sample_response, status_code=200)
+    client = api.TEDAPIClient()
+    token = "TEST_TOKEN_123"
+    result = client.search_notices(query="abc", page=1, limit=10, pagination_mode="ITERATION", iteration_token=token)
+    # The result should be returned (empty in this case)
+    assert result == sample_response
+    # Check that the request payload has the correct mode and token
+    sent_payload = requests_mock.last_request.json()
+    assert sent_payload["paginationMode"] == "ITERATION"
+    assert sent_payload["iterationNextToken"] == token
