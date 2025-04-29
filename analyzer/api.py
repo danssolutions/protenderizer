@@ -1,8 +1,7 @@
-"""
-Module: api
-Provides a TEDAPIClient class to interact with the TED API v3 (Search API).
-"""
+import time
 import requests
+import logging
+import sys
 
 class TEDAPIError(Exception):
     """Custom exception for TED API client errors."""
@@ -12,41 +11,87 @@ class TEDAPIError(Exception):
 
 class TEDAPIClient:
     """
-    Client for TED API v3 (Search API).
-    Supports searching published notices via expert query.
+    Enhanced Client for TED API v3 (Search API).
+    - Supports retries with backoff
+    - Supports rate limiting
+    - Supports logging of all API interactions
+    - Handles graceful exit after max retries
     """
-    def __init__(self, base_url: str = None, timeout: int = 10):
-        """
-        Initialize the API client.
-        :param base_url: Base URL for the TED API (defaults to production).
-        :param timeout: Timeout for API requests (in seconds).
-        """
-        # Base URL defaults to the production TED API endpoint
+    def __init__(self, 
+                 base_url: str = None, 
+                 timeout: int = 10, 
+                 max_retries: int = 3, 
+                 backoff_factor: float = 1.5,
+                 rate_limit_per_minute: int = 600,
+                 log_file: str = "ted_api_client.log"):
+        
         self.base_url = base_url or "https://api.ted.europa.eu"
-        # Ensure no trailing slash in base_url
         if self.base_url.endswith("/"):
             self.base_url = self.base_url.rstrip("/")
         self.timeout = timeout
-        # Endpoint path for search (v3 notices search)
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+        self.rate_limit_per_minute = rate_limit_per_minute
+        self.min_interval = 60.0 / rate_limit_per_minute
+        self.last_request_time = None
+
         self.search_path = "/v3/notices/search"
-    
+        self.logger = self._init_logger(log_file)
+
+    def _init_logger(self, log_file: str):
+        logger = logging.getLogger("TEDAPIClient")
+        logger.setLevel(logging.DEBUG)
+        handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        return logger
+
+    def _respect_rate_limit(self):
+        if self.last_request_time is None:
+            return
+        elapsed = time.time() - self.last_request_time
+        if elapsed < self.min_interval:
+            sleep_time = self.min_interval - elapsed
+            time.sleep(sleep_time)
+
+    def _post_with_retries(self, url, payload):
+        retries = 0
+        retry_delay = self.backoff_factor  # start with base backoff
+        while retries <= self.max_retries:
+            try:
+                self._respect_rate_limit()
+                response = requests.post(url, json=payload, timeout=self.timeout)
+                self.last_request_time = time.time()
+                if response.ok:
+                    self._log_success(url, response, payload)
+                    return response
+                else:
+                    self._log_error(url, response, payload)
+                    raise TEDAPIError(f"API request failed with status {response.status_code}: {response.text}", status_code=response.status_code)
+            except (requests.RequestException, TEDAPIError) as e:
+                retries += 1
+                if retries > self.max_retries:
+                    self.logger.error(f"Max retries exceeded: {str(e)}")
+                    raise TEDAPIError(f"Max retries exceeded: {str(e)}") from e
+                sleep = retry_delay
+                self.logger.warning(f"Retry {retries}/{self.max_retries} after error: {str(e)} (waiting {sleep:.2f}s)")
+                time.sleep(sleep)
+                retry_delay *= 2  # exponential backoff
+
+    def _log_success(self, url, response, payload):
+        try:
+            notices = len(response.json().get("notices", []))
+        except Exception:
+            notices = "unknown"
+        self.logger.info(f"SUCCESS: {url} - Retrieved {notices} notices")
+
+    def _log_error(self, url, response, payload):
+        self.logger.error(f"ERROR: {url} - Status {response.status_code} - {response.text}")
+
     def search_notices(self, query: str, fields: list = None, page: int = 1, limit: int = 20,
                        scope: str = "ALL", check_query_syntax: bool = False,
                        pagination_mode: str = "PAGE_NUMBER", iteration_token: str = None) -> dict:
-        """
-        Search for notices using the TED API Search endpoint.
-        :param query: Expert search query string to filter and sort notices.
-        :param fields: Optional list of fields to return for each notice.
-        :param page: Page number for pagination (starting at 1, used in PAGE_NUMBER mode).
-        :param limit: Number of notices per page (max 250).
-        :param scope: Search scope (e.g. 'ALL', 'ACTIVE', 'LATEST').
-        :param check_query_syntax: If True, only check query syntax without returning results.
-        :param pagination_mode: 'PAGE_NUMBER' (default) for standard pagination or 'ITERATION' for scroll.
-        :param iteration_token: Token for the next page in ITERATION mode (not needed for first call).
-        :return: A dictionary (parsed JSON) with search results and metadata.
-        :raises TEDAPIError: on network issues or API error responses.
-        """
-        # Build the request payload according to TED API specifications
         payload = {
             "query": query,
             "page": page,
@@ -54,46 +99,82 @@ class TEDAPIClient:
             "scope": scope,
             "checkQuerySyntax": check_query_syntax,
             "paginationMode": pagination_mode,
-            "onlyLatestVersions": True  # Force this field
+            "onlyLatestVersions": True
         }
         if fields is None:
             fields = [
-                "contract-nature",
-                "classification-cpv",
-                "dispatch-date",
-                "tender-value",
-                "publication-date",
-                "notice-type",
-                "organisation-country-buyer",
-                "buyer-country",
-                "main-activity"
+                "contract-nature", "classification-cpv", "dispatch-date",
+                "tender-value", "publication-date", "notice-type",
+                "organisation-country-buyer", "buyer-country", "main-activity"
             ]
         payload["fields"] = fields
         if pagination_mode == "ITERATION" and iteration_token:
             payload["iterationNextToken"] = iteration_token
+
         url = self.base_url + self.search_path
+        response = self._post_with_retries(url, payload)
+
         try:
-            response = requests.post(url, json=payload, timeout=self.timeout)
-        except requests.RequestException as e:
-            # Network-level errors (connection issues, timeouts, etc.)
-            raise TEDAPIError(f"Network error occurred: {e}") from e
-        # If the response status code indicates an error, handle it
-        if not response.ok:
-            # Try to parse error details from response (JSON or text)
-            error_message = ""
-            try:
-                error_json = response.json()
-                if isinstance(error_json, dict):
-                    # Attempt to extract a meaningful message from common fields
-                    error_message = error_json.get("message") or error_json.get("error") or ""
-            except ValueError:
-                # Response content is not JSON
-                error_message = response.text or ""
-            status = response.status_code
-            raise TEDAPIError(f"API request failed with status {status}: {error_message}", status_code=status)
-        # Parse the JSON response
-        try:
-            data = response.json()
+            return response.json()
         except ValueError as e:
             raise TEDAPIError(f"Invalid JSON in response: {e}") from e
-        return data
+
+    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250) -> list:
+        """
+        Fetch all available notices matching the query using scroll (iteration) mode.
+        Terminates after 2 consecutive duplicate batches to avoid infinite scroll loops.
+        """
+        all_notices = []
+        seen_pub_ids = set()
+        iteration_token = None
+        duplicate_batch_streak = 0
+        last_batch_ids = None
+        batch_count = 0
+
+        while True:
+            batch_count += 1
+
+            response = self.search_notices(
+                query=query,
+                fields=fields,
+                page=1,
+                limit=limit,
+                pagination_mode="ITERATION",
+                iteration_token=iteration_token
+            )
+            notices = response.get("notices", [])
+            token = response.get("iterationNextToken")
+            pub_ids = [n.get("publication-number") for n in notices]
+
+            self.logger.info(f"Scroll batch {batch_count}: {len(notices)} notices, token={token[:16] if token else 'None'}")
+
+            if not notices:
+                self.logger.warning(f"Empty scroll batch detected — aborting")
+                break
+
+            if last_batch_ids is not None and pub_ids == last_batch_ids:
+                duplicate_batch_streak += 1
+                self.logger.warning(f"Duplicate batch detected (#{duplicate_batch_streak}) with IDs: {pub_ids}")
+                if duplicate_batch_streak >= 2:
+                    self.logger.error("Detected 2 consecutive duplicate batches — aborting scroll")
+                    break
+            else:
+                duplicate_batch_streak = 0
+
+            for notice in notices:
+                pub_id = notice.get("publication-number")
+                if pub_id not in seen_pub_ids:
+                    all_notices.append(notice)
+                    seen_pub_ids.add(pub_id)
+
+            if not token:
+                self.logger.info("Scroll complete — no more tokens")
+                break
+
+            iteration_token = token
+            last_batch_ids = pub_ids
+            time.sleep(0.5)
+
+        return all_notices
+
+

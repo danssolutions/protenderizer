@@ -1,4 +1,6 @@
 import click
+from analyzer.api import TEDAPIClient, TEDAPIError
+import json
 
 @click.group()
 @click.version_option("0.1.0")
@@ -9,11 +11,24 @@ def cli():
 @cli.command()
 @click.option("--start-date", required=True)
 @click.option("--end-date", required=True)
-@click.option("--mode", type=click.Choice(["pagination", "scroll"]), default="pagination")
+@click.option("--mode", type=click.Choice(["pagination", "scroll", "full-scroll"]), default="pagination")
 @click.option("--filters", required=False)
-@click.option("--output", type=click.Choice(["json", "csv"]), default="json")
+@click.option("--output", type=click.Choice(["json"]), default="json")
 def fetch(start_date, end_date, mode, filters, output):
-    click.echo(f"[fetch] {start_date=} {end_date=} {mode=} {filters=} {output=}")
+    from analyzer import api  # lazy import
+    client = api.TEDAPIClient()
+
+    query = f"dispatch-date>={start_date} AND dispatch-date<={end_date}"
+    if filters:
+        query = f"({query}) AND ({filters})"
+
+    if mode == "full-scroll":
+        notices = client.fetch_all_scroll(query=query)
+        click.echo(json.dumps(notices, indent=2))
+    else:
+        pagination_mode = "ITERATION" if mode == "scroll" else "PAGE_NUMBER"
+        data = client.search_notices(query=query, pagination_mode=pagination_mode)
+        click.echo(json.dumps(data, indent=2))
 
 @cli.command()
 @click.option("--interval", type=click.Choice(["daily", "weekly", "monthly"]), default="daily")
@@ -23,7 +38,6 @@ def sync(interval, config):
 
 @cli.command()
 @click.option("--input", required=True)
-@click.option("--output", required=False)
 @click.option("--validate", is_flag=True)
 @click.option("--db", required=False)
 @click.option("--log", is_flag=True)
@@ -53,3 +67,4 @@ def detect_outliers(start_date, end_date, method, confidence, output):
 @click.option("--filter", required=False)
 def list_outliers(input, start_date, end_date, filter):
     click.echo(f"[list-outliers] {input=} {start_date=} {end_date=} {filter=}")
+

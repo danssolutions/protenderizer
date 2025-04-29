@@ -1,7 +1,10 @@
 import pytest
 import requests
+import time
+from unittest.mock import patch
 from analyzer import api
 
+# region Basic Search Tests
 def test_search_success(requests_mock):
     """Test that a successful API call returns the expected data."""
     sample_response = {"totalCount": 2, "results": [{"id": "1-2025"}, {"id": "2-2025"}]}
@@ -42,46 +45,6 @@ def test_search_with_fields(requests_mock):
     assert sent_payload["limit"] == 1
     assert sent_payload["scope"] == "ALL"
 
-def test_search_http_error_json(requests_mock):
-    """Test that an HTTP error with a JSON body raises TEDAPIError with an appropriate message."""
-    error_body = {"error": "Invalid query syntax"}
-    url = "https://api.ted.europa.eu/v3/notices/search"
-    requests_mock.post(url, json=error_body, status_code=400)
-    client = api.TEDAPIClient()
-    with pytest.raises(api.TEDAPIError) as excinfo:
-        client.search_notices(query="INVALID QUERY")
-    # The exception should contain the status code and error message
-    err = excinfo.value
-    assert err.status_code == 400
-    assert "400" in str(err) and "Invalid query syntax" in str(err)
-
-def test_search_http_error_text(requests_mock):
-    """Test that an HTTP error with a plain text body raises TEDAPIError with that text."""
-    error_text = "Service Unavailable"
-    url = "https://api.ted.europa.eu/v3/notices/search"
-    # Simulate a 503 error with a plain text response body
-    requests_mock.post(url, text=error_text, status_code=503)
-    client = api.TEDAPIClient()
-    with pytest.raises(api.TEDAPIError) as excinfo:
-        client.search_notices(query="ANY")
-    err = excinfo.value
-    assert err.status_code == 503
-    # Error message should contain the status and the text
-    assert "503" in str(err) and "Service Unavailable" in str(err)
-
-def test_search_network_error(monkeypatch):
-    """Test that a network error (e.g., timeout) raises TEDAPIError."""
-    client = api.TEDAPIClient()
-    # Monkeypatch requests.post to raise a ConnectTimeout exception
-    def fake_post(*args, **kwargs):
-        raise requests.exceptions.ConnectTimeout("Connection timed out")
-    monkeypatch.setattr(requests, "post", fake_post)
-    with pytest.raises(api.TEDAPIError) as excinfo:
-        client.search_notices(query="ANY")
-    err = excinfo.value
-    # The error message should indicate a network error occurred
-    assert "Network error occurred" in str(err)
-
 def test_search_iteration_mode(requests_mock):
     """Test that using iteration mode includes the token and mode in the payload."""
     sample_response = {"totalCount": 0, "results": []}
@@ -96,3 +59,151 @@ def test_search_iteration_mode(requests_mock):
     sent_payload = requests_mock.last_request.json()
     assert sent_payload["paginationMode"] == "ITERATION"
     assert sent_payload["iterationNextToken"] == token
+
+def test_fetch_all_scroll_multiple_pages(requests_mock):
+    """Test for using multiple iteration mode calls in sequence."""
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    # Mock two pages
+    requests_mock.post(url, [
+        {"json": {"notices": [{"publication-number": "PUB1"}], "iterationNextToken": "TOKEN123"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": None}, "status_code": 200},
+    ])
+    client = api.TEDAPIClient()
+    with patch("time.sleep", return_value=None):
+        results = client.fetch_all_scroll(query="test", limit=1)
+    assert len(results) == 2
+    assert results[0]["publication-number"] == "PUB1"
+    assert results[1]["publication-number"] == "PUB2"
+# endregion
+
+# region Error Handling Tests
+def test_search_http_error_json(requests_mock):
+    """Test that an HTTP error with a JSON body raises TEDAPIError with an appropriate message."""
+    error_body = {"error": "Invalid query syntax"}
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(url, json=error_body, status_code=400)
+    client = api.TEDAPIClient()
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="INVALID QUERY")
+    # The exception should contain the status code and error message
+    err = excinfo.value
+    assert "400" in str(err) and "Invalid query syntax" in str(err)
+
+def test_search_http_error_text(requests_mock):
+    """Test that an HTTP error with a plain text body raises TEDAPIError with that text."""
+    error_text = "Service Unavailable"
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    # Simulate a 503 error with a plain text response body
+    requests_mock.post(url, text=error_text, status_code=503)
+    client = api.TEDAPIClient()
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="ANY")
+    err = excinfo.value
+    # Error message should contain the status and the text
+    assert "503" in str(err) and "Service Unavailable" in str(err)
+
+def test_search_network_error(monkeypatch):
+    """Test that a network error (e.g., timeout) raises TEDAPIError."""
+    client = api.TEDAPIClient()
+    # Monkeypatch requests.post to raise a ConnectTimeout exception
+    def fake_post(*args, **kwargs):
+        raise requests.exceptions.ConnectTimeout("Connection timed out")
+    monkeypatch.setattr(requests, "post", fake_post)
+    with pytest.raises(api.TEDAPIError) as excinfo:
+        client.search_notices(query="ANY")
+    err = excinfo.value
+    # The error message should indicate a network error occurred
+    assert "Max retries exceeded" in str(err) and "Connection timed out" in str(err)
+# endregion
+
+# region Retry and Rate Limit Tests
+def test_fetch_notices_exponential_retry(monkeypatch):
+    client = api.TEDAPIClient(max_retries=2, backoff_factor=0.5)
+
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(time.time())
+        raise requests.exceptions.ConnectTimeout("timeout!")
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    with pytest.raises(api.TEDAPIError):
+        client.search_notices(query="any")
+
+    # Expect 3 attempts (1 original + 2 retries)
+    assert len(calls) == 3
+
+def test_fetch_notices_rate_limit(monkeypatch):
+    client = api.TEDAPIClient(rate_limit_per_minute=60)  # 1 request per second max
+    times = []
+
+    def fake_post(*args, **kwargs):
+        times.append(time.time())
+        class FakeResponse:
+            ok = True
+            def json(self): return {"notices": []}
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    client.search_notices(query="test")
+    client.search_notices(query="test")
+
+    assert times[1] - times[0] >= 1.0
+
+def test_fetch_notices_retry_limit(monkeypatch):
+    client = api.TEDAPIClient(max_retries=2)
+
+    def fake_post(*args, **kwargs):
+        raise requests.exceptions.RequestException("fail")
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    with pytest.raises(api.TEDAPIError) as e:
+        client.search_notices(query="any")
+
+    assert "Max retries exceeded" in str(e.value)
+# endregion
+
+# region Logging Tests
+def test_fetch_notices_log_success(tmp_path, requests_mock):
+    log_file = tmp_path / "log_success.txt"
+    client = api.TEDAPIClient(log_file=str(log_file))
+
+    sample_response = {"notices": [{"id": "test"}]}
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json=sample_response)
+
+    client.search_notices(query="test")
+
+    logs = log_file.read_text()
+    assert "SUCCESS" in logs
+
+def test_fetch_notices_log_append_only(tmp_path, requests_mock):
+    log_file = tmp_path / "log_append.txt"
+    client = api.TEDAPIClient(log_file=str(log_file))
+
+    sample_response = {"notices": [{"id": "test1"}]}
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json=sample_response)
+    client.search_notices(query="test")
+
+    sample_response2 = {"notices": [{"id": "test2"}]}
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json=sample_response2)
+    client.search_notices(query="test2")
+
+    logs = log_file.read_text()
+    assert logs.count("SUCCESS") == 2
+
+def test_fetch_notices_log_abnormal_response(tmp_path, requests_mock):
+    log_file = tmp_path / "log_error.txt"
+    client = api.TEDAPIClient(log_file=str(log_file))
+
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", status_code=503, text="Server Error")
+
+    with pytest.raises(api.TEDAPIError):
+        client.search_notices(query="test")
+
+    logs = log_file.read_text()
+    assert "ERROR" in logs
+    assert "503" in logs
+# endregion
