@@ -1,7 +1,6 @@
 import time
 import requests
 import logging
-import sys
 
 class TEDAPIError(Exception):
     """Custom exception for TED API client errors."""
@@ -103,9 +102,21 @@ class TEDAPIClient:
         }
         if fields is None:
             fields = [
-                "contract-nature", "classification-cpv", "dispatch-date",
-                "tender-value", "publication-date", "notice-type",
-                "organisation-country-buyer", "buyer-country", "main-activity"
+                "contract-nature",
+                "classification-cpv",
+                "dispatch-date",
+                "tender-value-lowest",
+                "tender-value",
+                "publication-date",
+                "notice-type",
+                "recurrence-lot",
+                "buyer-country",
+                "main-activity",
+                "duration-period-value-lot",
+                "term-performance-lot",
+                "TV_CUR", # Tender Value Currency
+                "renewal-maximum-lot",
+                "TVH" # Tender Value Highest
             ]
         payload["fields"] = fields
         if pagination_mode == "ITERATION" and iteration_token:
@@ -149,7 +160,7 @@ class TEDAPIClient:
             self.logger.info(f"Scroll batch {batch_count}: {len(notices)} notices, token={token[:16] if token else 'None'}")
 
             if not notices:
-                self.logger.warning(f"Empty scroll batch detected — aborting")
+                self.logger.warning("Empty scroll batch detected — aborting")
                 break
 
             if last_batch_ids is not None and pub_ids == last_batch_ids:
@@ -173,7 +184,7 @@ class TEDAPIClient:
 
             iteration_token = token
             last_batch_ids = pub_ids
-            time.sleep(0.5)
+            time.sleep(0.7)
 
         return all_notices
 
