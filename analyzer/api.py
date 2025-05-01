@@ -69,7 +69,10 @@ class TEDAPIClient:
                     return response
                 else:
                     self._log_error(url, response, payload)
-                    raise TEDAPIError(f"API request failed with status {response.status_code}: {response.text}", status_code=response.status_code)
+                    error_msg = response.text
+                    if response.headers.get("Content-Type", "").startswith("text/html"):
+                        error_msg = f"HTTP {response.status_code}: HTML error page received"
+                    raise TEDAPIError(f"API request failed with status {response.status_code}: {error_msg}", status_code=response.status_code)
             except (requests.RequestException, TEDAPIError) as e:
                 retries += 1
                 if retries > self.max_retries:
@@ -88,7 +91,21 @@ class TEDAPIClient:
         self.logger.info(f"SUCCESS: {url} - Retrieved {notices} notices")
 
     def _log_error(self, url, response, payload):
-        self.logger.error(f"ERROR: {url} - Status {response.status_code} - {response.text}")
+        content_type = response.headers.get("Content-Type", "")
+        if content_type.startswith("text/html"):
+            body = f"[HTML error page omitted]"
+        else:
+            body = response.text
+        self.logger.error(f"Error: {url} - Status {response.status_code} - {body}")
+    
+    def build_query(self, start_date: str, end_date: str, additional_filters: str = None) -> str:
+        """
+        Build the search query string for TED API based on date range and optional filters.
+        """
+        base_query = f"dispatch-date>={start_date} AND dispatch-date<={end_date}"
+        if additional_filters:
+            return f"({base_query}) AND ({additional_filters})"
+        return base_query
     
     def save_notices_as_csv(self, notices, output_file: str, append: bool = False):
         """Save notices to a CSV file, append if needed."""
@@ -239,7 +256,7 @@ class TEDAPIClient:
             except Exception as e:
                 self.logger.error(f"Failed to write checkpoint file: {e}")
 
-            time.sleep(0.7)
+            time.sleep(0.6)
 
         # Done scrolling
         if os.path.exists(checkpoint_file):

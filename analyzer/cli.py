@@ -19,9 +19,7 @@ def fetch(start_date, end_date, mode, filters, output, output_file):
     from analyzer import api  # lazy import
     client = api.TEDAPIClient()
 
-    query = f"dispatch-date>={start_date} AND dispatch-date<={end_date}"
-    if filters:
-        query = f"({query}) AND ({filters})"
+    query = client.build_query(start_date, end_date, filters)
     
     # Default filenames
     if output_file is None:
