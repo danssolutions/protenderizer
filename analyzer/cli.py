@@ -13,22 +13,32 @@ def cli():
 @click.option("--end-date", required=True)
 @click.option("--mode", type=click.Choice(["pagination", "scroll", "full-scroll"]), default="pagination")
 @click.option("--filters", required=False)
-@click.option("--output", type=click.Choice(["json"]), default="json")
-def fetch(start_date, end_date, mode, filters, output):
+@click.option("--output", type=click.Choice(["csv", "json"]), default="csv")
+@click.option("--output-file", required=False)
+def fetch(start_date, end_date, mode, filters, output, output_file):
     from analyzer import api  # lazy import
     client = api.TEDAPIClient()
 
     query = f"dispatch-date>={start_date} AND dispatch-date<={end_date}"
     if filters:
         query = f"({query}) AND ({filters})"
+    
+    # Default filenames
+    if output_file is None:
+        output_file = "notices.csv" if output == "csv" else "notices.json"
 
     if mode == "full-scroll":
-        notices = client.fetch_all_scroll(query=query)
-        click.echo(json.dumps(notices, indent=2))
+        client.fetch_all_scroll(query=query, output_file=output_file, output_format=output)
     else:
         pagination_mode = "ITERATION" if mode == "scroll" else "PAGE_NUMBER"
         data = client.search_notices(query=query, pagination_mode=pagination_mode)
-        click.echo(json.dumps(data, indent=2))
+        notices = data.get("notices", [])
+        if output == "csv":
+            client.save_notices_as_csv(notices, output_file)
+        elif output == "json":
+            client.save_notices_as_json(notices, output_file)
+
+    click.echo(f"Saved output to {output_file}")
 
 @cli.command()
 @click.option("--interval", type=click.Choice(["daily", "weekly", "monthly"]), default="daily")

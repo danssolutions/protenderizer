@@ -1,6 +1,8 @@
 import time
 import requests
 import logging
+import os
+import pandas as pd
 
 class TEDAPIError(Exception):
     """Custom exception for TED API client errors."""
@@ -87,6 +89,29 @@ class TEDAPIClient:
 
     def _log_error(self, url, response, payload):
         self.logger.error(f"ERROR: {url} - Status {response.status_code} - {response.text}")
+    
+    def save_notices_as_csv(self, notices, output_file: str, append: bool = False):
+        """Save notices to a CSV file, append if needed."""
+        if not notices:
+            self.logger.warning(f"No notices to save to {output_file}")
+            return
+        df = pd.DataFrame(notices)
+        if "links" in df.columns:
+            df.drop(columns=["links"], inplace=True)
+        write_mode = "a" if append else "w"
+        header = not append
+        df.to_csv(output_file, mode=write_mode, header=header, index=False, encoding="utf-8")
+        self.logger.info(f"Saved {len(df)} notices to CSV: {output_file}")
+
+    def save_notices_as_json(self, notices, output_file: str):
+        """Save notices to a JSON file."""
+        if not notices:
+            self.logger.warning(f"No notices to save to {output_file}")
+            return
+        with open(output_file, "w", encoding="utf-8") as f:
+            import json
+            json.dump(notices, f, indent=2, ensure_ascii=False)
+        self.logger.info(f"Saved {len(notices)} notices to JSON: {output_file}")
 
     def search_notices(self, query: str, fields: list = None, page: int = 1, limit: int = 20,
                        scope: str = "ALL", check_query_syntax: bool = False,
@@ -130,10 +155,12 @@ class TEDAPIClient:
         except ValueError as e:
             raise TEDAPIError(f"Invalid JSON in response: {e}") from e
 
-    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250) -> list:
+    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250,
+                     checkpoint_file: str = ".last_scroll_token", output_file: str = None, output_format: str = "csv") -> list:
         """
         Fetch all available notices matching the query using scroll (iteration) mode.
-        Terminates after 2 consecutive duplicate batches to avoid infinite scroll loops.
+        Supports crash recovery via checkpoint saving.
+        Writes results incrementally if CSV output is selected.
         """
         all_notices = []
         seen_pub_ids = set()
@@ -141,6 +168,25 @@ class TEDAPIClient:
         duplicate_batch_streak = 0
         last_batch_ids = None
         batch_count = 0
+
+        resuming_from_checkpoint = False
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, "r", encoding="utf-8") as f:
+                    iteration_token = f.read().strip()
+                self.logger.warning(f"Resuming scroll from saved checkpoint token: {iteration_token[:16]}...")
+                resuming_from_checkpoint = True
+            except Exception as e:
+                self.logger.error(f"Failed to read checkpoint file: {e}")
+
+        if output_file and not resuming_from_checkpoint and os.path.exists(output_file) and output_format == "csv":
+            try:
+                os.remove(output_file)
+                self.logger.info(f"Deleted previous output file {output_file} (fresh retrieval)")
+            except Exception as e:
+                self.logger.error(f"Failed to delete output file: {e}")
+
+        first_batch = not os.path.exists(output_file)  # Write header only on first CSV batch
 
         while True:
             batch_count += 1
@@ -172,20 +218,38 @@ class TEDAPIClient:
             else:
                 duplicate_batch_streak = 0
 
+            batch_data = []
             for notice in notices:
                 pub_id = notice.get("publication-number")
                 if pub_id not in seen_pub_ids:
                     all_notices.append(notice)
                     seen_pub_ids.add(pub_id)
+                    batch_data.append(notice)
 
-            if not token:
-                self.logger.info("Scroll complete — no more tokens")
-                break
+            if output_file and output_format == "csv" and batch_data:
+                self.save_notices_as_csv(batch_data, output_file, append=not first_batch)
+                first_batch = False  # After first write, never write headers again
 
             iteration_token = token
             last_batch_ids = pub_ids
+
+            try:
+                with open(checkpoint_file, "w", encoding="utf-8") as f:
+                    f.write(iteration_token)
+            except Exception as e:
+                self.logger.error(f"Failed to write checkpoint file: {e}")
+
             time.sleep(0.7)
 
+        # Done scrolling
+        if os.path.exists(checkpoint_file):
+            try:
+                os.remove(checkpoint_file)
+                self.logger.info(f"Deleted checkpoint file {checkpoint_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to delete checkpoint file: {e}")
+
+        if output_file and output_format == "json":
+            self.save_notices_as_json(all_notices, output_file)
+
         return all_notices
-
-

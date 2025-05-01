@@ -1,6 +1,9 @@
+import os
 import pytest
 import requests
 import time
+import json
+import pandas as pd
 from unittest.mock import patch
 from analyzer import api
 
@@ -60,20 +63,55 @@ def test_search_iteration_mode(requests_mock):
     assert sent_payload["paginationMode"] == "ITERATION"
     assert sent_payload["iterationNextToken"] == token
 
-def test_fetch_all_scroll_multiple_pages(requests_mock):
-    """Test for using multiple iteration mode calls in sequence."""
+def test_fetch_all_scroll_multiple_pages_csv(tmp_path, requests_mock):
+    """Test fetch_all_scroll saving to CSV incrementally."""
     url = "https://api.ted.europa.eu/v3/notices/search"
-    # Mock two pages
+    output_file = tmp_path / "notices.csv"
+
+    # Simulate multiple scroll batches
     requests_mock.post(url, [
         {"json": {"notices": [{"publication-number": "PUB1"}], "iterationNextToken": "TOKEN123"}, "status_code": 200},
-        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": None}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
     ])
+
     client = api.TEDAPIClient()
+
     with patch("time.sleep", return_value=None):
-        results = client.fetch_all_scroll(query="test", limit=1)
+        results = client.fetch_all_scroll(query="test", limit=1, output_file=str(output_file), output_format="csv")
+
     assert len(results) == 2
-    assert results[0]["publication-number"] == "PUB1"
-    assert results[1]["publication-number"] == "PUB2"
+    assert os.path.exists(output_file)
+
+    df = pd.read_csv(output_file)
+    assert len(df) == 2
+    assert "publication-number" in df.columns
+    assert set(df["publication-number"].values) == {"PUB1", "PUB2"}
+
+def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
+    """Test fetch_all_scroll saving final result to JSON."""
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    output_file = tmp_path / "notices.json"
+
+    requests_mock.post(url, [
+        {"json": {"notices": [{"publication-number": "PUB1"}], "iterationNextToken": "TOKEN123"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
+    ])
+
+    client = api.TEDAPIClient()
+
+    with patch("time.sleep", return_value=None):
+        results = client.fetch_all_scroll(query="test", limit=1, output_file=str(output_file), output_format="json")
+
+    assert len(results) == 2
+    assert os.path.exists(output_file)
+
+    with open(output_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert set(n["publication-number"] for n in data) == {"PUB1", "PUB2"}
 # endregion
 
 # region Error Handling Tests
@@ -164,6 +202,39 @@ def test_fetch_notices_retry_limit(monkeypatch):
         client.search_notices(query="any")
 
     assert "Max retries exceeded" in str(e.value)
+
+def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
+    """Test that checkpoint resumption works correctly with CSV appending."""
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    checkpoint_file = tmp_path / "checkpoint.txt"
+    output_file = tmp_path / "notices.csv"
+
+    # Create checkpoint manually
+    checkpoint_file.write_text("TOKEN123")
+
+    # Mock two pages: one after checkpoint
+    requests_mock.post(url, [
+        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
+    ])
+
+    client = api.TEDAPIClient()
+
+    with patch("time.sleep", return_value=None):
+        results = client.fetch_all_scroll(query="test", limit=1,
+                                          checkpoint_file=str(checkpoint_file),
+                                          output_file=str(output_file),
+                                          output_format="csv")
+
+    assert len(results) == 1
+    assert os.path.exists(output_file)
+
+    df = pd.read_csv(output_file)
+    assert len(df) == 1
+    assert "publication-number" in df.columns
+    assert df.iloc[0]["publication-number"] == "PUB2"
+
+    assert not checkpoint_file.exists()
 # endregion
 
 # region Logging Tests
