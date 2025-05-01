@@ -4,11 +4,14 @@ import logging
 import os
 import pandas as pd
 
+
 class TEDAPIError(Exception):
     """Custom exception for TED API client errors."""
+
     def __init__(self, message: str, status_code: int = None):
         super().__init__(message)
         self.status_code = status_code
+
 
 class TEDAPIClient:
     """
@@ -18,14 +21,15 @@ class TEDAPIClient:
     - Supports logging of all API interactions
     - Handles graceful exit after max retries
     """
-    def __init__(self, 
-                 base_url: str = None, 
-                 timeout: int = 10, 
-                 max_retries: int = 3, 
+
+    def __init__(self,
+                 base_url: str = None,
+                 timeout: int = 10,
+                 max_retries: int = 3,
                  backoff_factor: float = 1.5,
                  rate_limit_per_minute: int = 600,
                  log_file: str = "ted_api_client.log"):
-        
+
         self.base_url = base_url or "https://api.ted.europa.eu"
         if self.base_url.endswith("/"):
             self.base_url = self.base_url.rstrip("/")
@@ -62,7 +66,8 @@ class TEDAPIClient:
         while retries <= self.max_retries:
             try:
                 self._respect_rate_limit()
-                response = requests.post(url, json=payload, timeout=self.timeout)
+                response = requests.post(
+                    url, json=payload, timeout=self.timeout)
                 self.last_request_time = time.time()
                 if response.ok:
                     self._log_success(url, response, payload)
@@ -72,14 +77,16 @@ class TEDAPIClient:
                     error_msg = response.text
                     if response.headers.get("Content-Type", "").startswith("text/html"):
                         error_msg = f"HTTP {response.status_code}: HTML error page received"
-                    raise TEDAPIError(f"API request failed with status {response.status_code}: {error_msg}", status_code=response.status_code)
+                    raise TEDAPIError(
+                        f"API request failed with status {response.status_code}: {error_msg}", status_code=response.status_code)
             except (requests.RequestException, TEDAPIError) as e:
                 retries += 1
                 if retries > self.max_retries:
                     self.logger.error(f"Max retries exceeded: {str(e)}")
                     raise TEDAPIError(f"Max retries exceeded: {str(e)}") from e
                 sleep = retry_delay
-                self.logger.warning(f"Retry {retries}/{self.max_retries} after error: {str(e)} (waiting {sleep:.2f}s)")
+                self.logger.warning(
+                    f"Retry {retries}/{self.max_retries} after error: {str(e)} (waiting {sleep:.2f}s)")
                 time.sleep(sleep)
                 retry_delay *= 2  # exponential backoff
 
@@ -93,11 +100,12 @@ class TEDAPIClient:
     def _log_error(self, url, response, payload):
         content_type = response.headers.get("Content-Type", "")
         if content_type.startswith("text/html"):
-            body = f"[HTML error page omitted]"
+            body = "[HTML error page omitted]"
         else:
             body = response.text
-        self.logger.error(f"Error: {url} - Status {response.status_code} - {body}")
-    
+        self.logger.error(
+            f"Error: {url} - Status {response.status_code} - {body}")
+
     def build_query(self, start_date: str, end_date: str, additional_filters: str = None) -> str:
         """
         Build the search query string for TED API based on date range and optional filters.
@@ -106,7 +114,7 @@ class TEDAPIClient:
         if additional_filters:
             return f"({base_query}) AND ({additional_filters})"
         return base_query
-    
+
     def save_notices_as_csv(self, notices, output_file: str, append: bool = False):
         """Save notices to a CSV file, append if needed."""
         if not notices:
@@ -117,7 +125,8 @@ class TEDAPIClient:
             df.drop(columns=["links"], inplace=True)
         write_mode = "a" if append else "w"
         header = not append
-        df.to_csv(output_file, mode=write_mode, header=header, index=False, encoding="utf-8")
+        df.to_csv(output_file, mode=write_mode, header=header,
+                  index=False, encoding="utf-8")
         self.logger.info(f"Saved {len(df)} notices to CSV: {output_file}")
 
     def save_notices_as_json(self, notices, output_file: str):
@@ -128,7 +137,8 @@ class TEDAPIClient:
         with open(output_file, "w", encoding="utf-8") as f:
             import json
             json.dump(notices, f, indent=2, ensure_ascii=False)
-        self.logger.info(f"Saved {len(notices)} notices to JSON: {output_file}")
+        self.logger.info(
+            f"Saved {len(notices)} notices to JSON: {output_file}")
 
     def search_notices(self, query: str, fields: list = None, page: int = 1, limit: int = 20,
                        scope: str = "ALL", check_query_syntax: bool = False,
@@ -156,9 +166,9 @@ class TEDAPIClient:
                 "main-activity",
                 "duration-period-value-lot",
                 "term-performance-lot",
-                "TV_CUR", # Tender Value Currency
+                "TV_CUR",  # Tender Value Currency
                 "renewal-maximum-lot",
-                "TVH" # Tender Value Highest
+                "TVH"  # Tender Value Highest
             ]
         payload["fields"] = fields
         if pagination_mode == "ITERATION" and iteration_token:
@@ -172,8 +182,7 @@ class TEDAPIClient:
         except ValueError as e:
             raise TEDAPIError(f"Invalid JSON in response: {e}") from e
 
-    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250,
-                     checkpoint_file: str = ".last_scroll_token", output_file: str = None, output_format: str = "csv") -> list:
+    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250, checkpoint_file: str = ".token", output_file: str = None, output_format: str = "csv") -> list:
         """
         Fetch all available notices matching the query using scroll (iteration) mode.
         Supports crash recovery via checkpoint saving.
@@ -191,7 +200,8 @@ class TEDAPIClient:
             try:
                 with open(checkpoint_file, "r", encoding="utf-8") as f:
                     iteration_token = f.read().strip()
-                self.logger.warning(f"Resuming scroll from saved checkpoint token: {iteration_token[:16]}...")
+                self.logger.warning(
+                    f"Resuming scroll from saved checkpoint token: {iteration_token[:16]}...")
                 resuming_from_checkpoint = True
             except Exception as e:
                 self.logger.error(f"Failed to read checkpoint file: {e}")
@@ -199,11 +209,13 @@ class TEDAPIClient:
         if output_file and not resuming_from_checkpoint and os.path.exists(output_file) and output_format == "csv":
             try:
                 os.remove(output_file)
-                self.logger.info(f"Deleted previous output file {output_file} (fresh retrieval)")
+                self.logger.info(
+                    f"Deleted previous output file {output_file} (fresh retrieval)")
             except Exception as e:
                 self.logger.error(f"Failed to delete output file: {e}")
 
-        first_batch = not os.path.exists(output_file)  # Write header only on first CSV batch
+        # Write header only on first CSV batch
+        first_batch = not os.path.exists(output_file)
 
         while True:
             batch_count += 1
@@ -220,7 +232,8 @@ class TEDAPIClient:
             token = response.get("iterationNextToken")
             pub_ids = [n.get("publication-number") for n in notices]
 
-            self.logger.info(f"Scroll batch {batch_count}: {len(notices)} notices, token={token[:16] if token else 'None'}")
+            self.logger.info(
+                f"Scroll batch {batch_count}: {len(notices)} notices, token={token[:16] if token else 'None'}")
 
             if not notices:
                 self.logger.warning("Empty scroll batch detected — aborting")
@@ -228,9 +241,11 @@ class TEDAPIClient:
 
             if last_batch_ids is not None and pub_ids == last_batch_ids:
                 duplicate_batch_streak += 1
-                self.logger.warning(f"Duplicate batch detected (#{duplicate_batch_streak}) with IDs: {pub_ids}")
+                self.logger.warning(
+                    f"Duplicate batch detected (#{duplicate_batch_streak}) with IDs: {pub_ids}")
                 if duplicate_batch_streak >= 2:
-                    self.logger.error("Detected 2 consecutive duplicate batches — aborting scroll")
+                    self.logger.error(
+                        "Detected 2 consecutive duplicate batches — aborting scroll")
                     break
             else:
                 duplicate_batch_streak = 0
@@ -244,7 +259,8 @@ class TEDAPIClient:
                     batch_data.append(notice)
 
             if output_file and output_format == "csv" and batch_data:
-                self.save_notices_as_csv(batch_data, output_file, append=not first_batch)
+                self.save_notices_as_csv(
+                    batch_data, output_file, append=not first_batch)
                 first_batch = False  # After first write, never write headers again
 
             iteration_token = token

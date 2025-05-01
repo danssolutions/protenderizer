@@ -8,10 +8,13 @@ from unittest.mock import patch
 from analyzer import api
 
 # region Basic Search Tests
+
+
 @pytest.mark.basic
 def test_search_success(requests_mock):
     """Test that a successful API call returns expected data."""
-    sample_response = {"totalCount": 2, "results": [{"id": "1-2025"}, {"id": "2-2025"}]}
+    sample_response = {"totalCount": 2, "results": [
+        {"id": "1-2025"}, {"id": "2-2025"}]}
     url = "https://api.ted.europa.eu/v3/notices/search"
     requests_mock.post(url, json=sample_response, status_code=200)
 
@@ -25,12 +28,15 @@ def test_search_success(requests_mock):
     assert sent_payload["limit"] == 2
     assert sent_payload["scope"] == "ALL"
     assert sent_payload["paginationMode"] == "PAGE_NUMBER"
-    assert "fields" in sent_payload and isinstance(sent_payload["fields"], list)
+    assert "fields" in sent_payload and isinstance(
+        sent_payload["fields"], list)
+
 
 @pytest.mark.basic
 def test_search_with_fields(requests_mock):
     """Test that specifying fields includes them in the request payload."""
-    sample_response = {"totalCount": 1, "results": [{"id": "XYZ-2025", "title": "Test Notice"}]}
+    sample_response = {"totalCount": 1, "results": [
+        {"id": "XYZ-2025", "title": "Test Notice"}]}
     url = "https://api.ted.europa.eu/v3/notices/search"
     requests_mock.post(url, json=sample_response, status_code=200)
 
@@ -42,6 +48,7 @@ def test_search_with_fields(requests_mock):
     sent_payload = requests_mock.last_request.json()
     assert sent_payload["fields"] == fields
 
+
 @pytest.mark.basic
 def test_search_iteration_mode(requests_mock):
     """Test using ITERATION pagination mode includes the token."""
@@ -51,7 +58,8 @@ def test_search_iteration_mode(requests_mock):
 
     client = api.TEDAPIClient()
     token = "TEST_TOKEN_123"
-    result = client.search_notices(query="abc", page=1, limit=10, pagination_mode="ITERATION", iteration_token=token)
+    result = client.search_notices(
+        query="abc", page=1, limit=10, pagination_mode="ITERATION", iteration_token=token)
 
     assert result == sample_response
     sent_payload = requests_mock.last_request.json()
@@ -60,6 +68,8 @@ def test_search_iteration_mode(requests_mock):
 # endregion
 
 # region Scroll Mode Tests
+
+
 @pytest.mark.scroll
 def test_fetch_all_scroll_multiple_pages_csv(tmp_path, requests_mock):
     """Test fetch_all_scroll saving to CSV incrementally."""
@@ -67,21 +77,25 @@ def test_fetch_all_scroll_multiple_pages_csv(tmp_path, requests_mock):
     output_file = tmp_path / "notices.csv"
 
     requests_mock.post(url, [
-        {"json": {"notices": [{"publication-number": "PUB1"}], "iterationNextToken": "TOKEN123"}, "status_code": 200},
-        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB1"}],
+                  "iterationNextToken": "TOKEN123"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}],
+                  "iterationNextToken": "TOKEN456"}, "status_code": 200},
         {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
     ])
 
     client = api.TEDAPIClient()
 
     with patch("time.sleep", return_value=None):
-        results = client.fetch_all_scroll(query="test", limit=1, output_file=str(output_file), output_format="csv")
+        results = client.fetch_all_scroll(
+            query="test", limit=1, output_file=str(output_file), output_format="csv")
 
     assert len(results) == 2
     assert output_file.exists()
 
     df = pd.read_csv(output_file)
     assert set(df["publication-number"]) == {"PUB1", "PUB2"}
+
 
 @pytest.mark.scroll
 def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
@@ -90,15 +104,18 @@ def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
     output_file = tmp_path / "notices.json"
 
     requests_mock.post(url, [
-        {"json": {"notices": [{"publication-number": "PUB1"}], "iterationNextToken": "TOKEN123"}, "status_code": 200},
-        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB1"}],
+                  "iterationNextToken": "TOKEN123"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}],
+                  "iterationNextToken": "TOKEN456"}, "status_code": 200},
         {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
     ])
 
     client = api.TEDAPIClient()
 
     with patch("time.sleep", return_value=None):
-        results = client.fetch_all_scroll(query="test", limit=1, output_file=str(output_file), output_format="json")
+        results = client.fetch_all_scroll(
+            query="test", limit=1, output_file=str(output_file), output_format="json")
 
     assert len(results) == 2
     assert output_file.exists()
@@ -106,6 +123,7 @@ def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
     with open(output_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     assert set(n["publication-number"] for n in data) == {"PUB1", "PUB2"}
+
 
 @pytest.mark.scroll
 def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
@@ -117,7 +135,8 @@ def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
     checkpoint_file.write_text("TOKEN123")
 
     requests_mock.post(url, [
-        {"json": {"notices": [{"publication-number": "PUB2"}], "iterationNextToken": "TOKEN456"}, "status_code": 200},
+        {"json": {"notices": [{"publication-number": "PUB2"}],
+                  "iterationNextToken": "TOKEN456"}, "status_code": 200},
         {"json": {"notices": [], "iterationNextToken": "TOKEN_END"}, "status_code": 200},
     ])
 
@@ -138,16 +157,20 @@ def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
 # endregion
 
 # region Error Handling Tests
+
+
 @pytest.mark.error_handling
 def test_search_http_error_json(requests_mock):
     """Test that an HTTP error with a JSON body raises TEDAPIError."""
     url = "https://api.ted.europa.eu/v3/notices/search"
-    requests_mock.post(url, json={"error": "Invalid query syntax"}, status_code=400)
+    requests_mock.post(
+        url, json={"error": "Invalid query syntax"}, status_code=400)
 
     client = api.TEDAPIClient()
     with pytest.raises(api.TEDAPIError) as excinfo:
         client.search_notices(query="INVALID QUERY")
     assert "400" in str(excinfo.value)
+
 
 @pytest.mark.error_handling
 def test_search_http_error_text(requests_mock):
@@ -159,6 +182,7 @@ def test_search_http_error_text(requests_mock):
     with pytest.raises(api.TEDAPIError) as excinfo:
         client.search_notices(query="ANY")
     assert "503" in str(excinfo.value)
+
 
 @pytest.mark.error_handling
 def test_search_network_error(monkeypatch):
@@ -175,6 +199,8 @@ def test_search_network_error(monkeypatch):
 # endregion
 
 # region Retry and Rate Limit Tests
+
+
 @pytest.mark.retry
 def test_fetch_notices_exponential_retry(monkeypatch):
     """Test exponential backoff retry."""
@@ -191,6 +217,7 @@ def test_fetch_notices_exponential_retry(monkeypatch):
 
     assert len(calls) == 3
 
+
 @pytest.mark.rate_limit
 def test_fetch_notices_rate_limit(monkeypatch):
     """Test that rate limiting enforces minimum interval."""
@@ -199,6 +226,7 @@ def test_fetch_notices_rate_limit(monkeypatch):
 
     def fake_post(*args, **kwargs):
         times.append(time.time())
+
         class FakeResponse:
             ok = True
             def json(self): return {"notices": []}
@@ -209,6 +237,7 @@ def test_fetch_notices_rate_limit(monkeypatch):
     client.search_notices(query="test")
 
     assert times[1] - times[0] >= 1.0
+
 
 @pytest.mark.retry
 def test_fetch_notices_retry_limit(monkeypatch):
@@ -225,6 +254,8 @@ def test_fetch_notices_retry_limit(monkeypatch):
 # endregion
 
 # region Logging Tests
+
+
 @pytest.mark.logging
 def test_fetch_notices_log_success(tmp_path, requests_mock):
     """Test successful request logging."""
@@ -232,12 +263,14 @@ def test_fetch_notices_log_success(tmp_path, requests_mock):
     client = api.TEDAPIClient(log_file=str(log_file))
 
     sample_response = {"notices": [{"id": "test"}]}
-    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json=sample_response)
+    requests_mock.post(
+        "https://api.ted.europa.eu/v3/notices/search", json=sample_response)
 
     client.search_notices(query="test")
 
     logs = log_file.read_text()
     assert "SUCCESS" in logs
+
 
 @pytest.mark.logging
 def test_fetch_notices_log_append_only(tmp_path, requests_mock):
@@ -245,14 +278,17 @@ def test_fetch_notices_log_append_only(tmp_path, requests_mock):
     log_file = tmp_path / "log_append.txt"
     client = api.TEDAPIClient(log_file=str(log_file))
 
-    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json={"notices": [{"id": "test1"}]})
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search",
+                       json={"notices": [{"id": "test1"}]})
     client.search_notices(query="test")
 
-    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", json={"notices": [{"id": "test2"}]})
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search",
+                       json={"notices": [{"id": "test2"}]})
     client.search_notices(query="test2")
 
     logs = log_file.read_text()
     assert logs.count("SUCCESS") == 2
+
 
 @pytest.mark.logging
 def test_fetch_notices_log_abnormal_response(tmp_path, requests_mock):
@@ -260,7 +296,8 @@ def test_fetch_notices_log_abnormal_response(tmp_path, requests_mock):
     log_file = tmp_path / "log_error.txt"
     client = api.TEDAPIClient(log_file=str(log_file))
 
-    requests_mock.post("https://api.ted.europa.eu/v3/notices/search", status_code=503, text="Server Error")
+    requests_mock.post("https://api.ted.europa.eu/v3/notices/search",
+                       status_code=503, text="Server Error")
 
     with pytest.raises(api.TEDAPIError):
         client.search_notices(query="test")
