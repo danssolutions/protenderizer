@@ -153,6 +153,8 @@ class TEDAPIClient:
             "onlyLatestVersions": True
         }
         if fields is None:
+            # For the default fields we make sure to try to not pull any info containing PII
+            # (not that it's needed for ML purposes anyway)
             fields = [
                 "contract-nature",
                 "classification-cpv",
@@ -201,7 +203,7 @@ class TEDAPIClient:
                 with open(checkpoint_file, "r", encoding="utf-8") as f:
                     iteration_token = f.read().strip()
                 self.logger.warning(
-                    f"Resuming scroll from saved checkpoint token: {iteration_token[:16]}...")
+                    f"Resuming scroll from saved checkpoint token: {iteration_token}...")
                 resuming_from_checkpoint = True
             except Exception as e:
                 self.logger.error(f"Failed to read checkpoint file: {e}")
@@ -233,10 +235,16 @@ class TEDAPIClient:
             pub_ids = [n.get("publication-number") for n in notices]
 
             self.logger.info(
-                f"Scroll batch {batch_count}: {len(notices)} notices, token={token[:16] if token else 'None'}")
+                f"Scroll batch {batch_count}: {len(notices)} notices, token={token if token else 'None'}")
 
             if not notices:
                 self.logger.warning("Empty scroll batch detected — aborting")
+                break
+
+            if token is None or not isinstance(token, str) or not token.strip():
+                self.logger.error(
+                    "Invalid or empty iteration token received — aborting")
+                print("ERROR: Invalid iteration token received. Check logs. Aborting.")
                 break
 
             if last_batch_ids is not None and pub_ids == last_batch_ids:
