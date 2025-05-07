@@ -60,6 +60,7 @@ def sync(interval, start_days_ago, filters, output, output_file):
 
 @cli.command()
 @click.option("--input", required=True)
+@click.option("--output", required=False)
 @click.option("--validate", is_flag=True)
 @click.option("--db", required=False)
 @click.option("--log", is_flag=True)
