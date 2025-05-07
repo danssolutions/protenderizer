@@ -8,7 +8,7 @@ dependencies = [
     "requests",
     "pandas",
     "scikit-learn",
-    "sqlalchemy"
+    "schedule"
 ]
 
 [project.scripts]
