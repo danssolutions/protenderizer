@@ -13,7 +13,10 @@ def test_sync_once_success_csv(tmp_path, requests_mock):
 
     url = "https://api.ted.europa.eu/v3/notices/search"
     requests_mock.post(
-        url, json={"notices": [{"publication-number": "PUB1"}]}, status_code=200)
+        url, json={
+            "notices": [{"publication-number": "PUB1"}],
+            "iterationNextToken": "dummy_token_1"   # <-- ADD THIS!
+        }, status_code=200)
 
     with patch("time.sleep", return_value=None):
         sync.sync_once(
@@ -26,6 +29,11 @@ def test_sync_once_success_csv(tmp_path, requests_mock):
 
     assert output_file.exists()
     assert last_sync_file.exists()
+
+    saved_timestamp = last_sync_file.read_text(encoding="utf-8").strip()
+    from datetime import datetime, timezone
+    expected_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    assert saved_timestamp == expected_timestamp
 
     df = pd.read_csv(output_file)
     assert "publication-number" in df.columns
@@ -40,7 +48,10 @@ def test_sync_once_success_json(tmp_path, requests_mock):
 
     url = "https://api.ted.europa.eu/v3/notices/search"
     requests_mock.post(
-        url, json={"notices": [{"publication-number": "PUB2"}]}, status_code=200)
+        url, json={
+            "notices": [{"publication-number": "PUB1"}],
+            "iterationNextToken": "dummy_token_1"
+        }, status_code=200)
 
     with patch("time.sleep", return_value=None):
         sync.sync_once(
@@ -54,10 +65,15 @@ def test_sync_once_success_json(tmp_path, requests_mock):
     assert output_file.exists()
     assert last_sync_file.exists()
 
+    saved_timestamp = last_sync_file.read_text(encoding="utf-8").strip()
+    from datetime import datetime, timezone
+    expected_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    assert saved_timestamp == expected_timestamp, f"Expected {expected_timestamp}, got {saved_timestamp}"
+
     with open(output_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     assert isinstance(data, list)
-    assert any(n["publication-number"] == "PUB2" for n in data)
+    assert any(n["publication-number"] == "PUB1" for n in data)
 
 
 @pytest.mark.sync
