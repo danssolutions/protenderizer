@@ -1,0 +1,35 @@
+@startuml protenderizer-component
+!include <C4/C4_Component.puml>
+
+LAYOUT_TOP_DOWN()
+'LAYOUT_AS_SKETCH()
+LAYOUT_WITH_LEGEND()
+
+title Protenderizer Component Diagram
+
+Person(user, "User", "User of the system")
+
+System_Ext(ted, "TED Open Data API", "External system for storing raw procurement data")
+
+Container_Boundary(main_system, "Main System") {
+    Container_Boundary(application, "Protenderizer") {
+        Container(data_retrieval, "Retrieval Module", "Python", "Returns raw data for the preprocessor and ML")
+        Container(data_preprocessing, "Preprocessing Module", "Python", "Processes and stores data for further ML processing")
+        Container(data_visualization, "Visualization Module", "Python", "Creates visualizations and reports of analyzed data for the user")
+        Container(machine_learning, "Machine Learning Module", "Python, ML stack", "Analyzes stored data for trends and outliers")
+        Container(cli, "Command Line Interface", "Python", "Provides access to other modules for users")
+    }
+    ContainerDb(data_storage, "Data Store", "PostgreSQL", "Stores preprocessed and analyzed data")
+}
+
+Rel(user, cli, "Interacts with")
+Rel(cli, data_retrieval, "Manages raw data retrieval using")
+Rel(data_retrieval, ted, "Retrieves raw data from")
+Rel(cli, data_preprocessing, "Manages data preprocessing using")
+Rel(cli, machine_learning, "Manages data analysis using")
+Rel(cli, data_visualization, "Retrieves data visualizations using")
+Rel(machine_learning, data_storage, "Stores output to")
+Rel(data_preprocessing, data_storage, "Stores output to")
+Rel(data_storage, data_visualization, "Retrieves preprocessed and analyzed data from")
+
+@enduml
