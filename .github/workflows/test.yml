@@ -28,8 +28,3 @@ jobs:
     - name: 🧪 Run tests
       run: |
         pytest -v
-
-    - name: 🧼 (Optional) Check formatting with black
-      run: |
-        pip install black
-        black --check analyzer tests
