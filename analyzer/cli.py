@@ -1,7 +1,7 @@
 import click
 import datetime
-
-# --- Helpers ---
+import pandas as pd
+from urllib.parse import urlparse
 
 
 def validate_date_yyyymmdd(ctx, param, value):
@@ -14,7 +14,16 @@ def validate_date_yyyymmdd(ctx, param, value):
         raise click.BadParameter(
             f"Date '{value}' must be in YYYYMMDD format (e.g., 20250101)")
 
-# --- CLI Root ---
+
+def parse_db_url(url):
+    parsed = urlparse(url)
+    return {
+        'host': parsed.hostname,
+        'port': parsed.port,
+        'database': parsed.path[1:],  # remove leading slash
+        'user': parsed.username,
+        'password': parsed.password
+    }
 
 
 @click.group()
@@ -23,65 +32,71 @@ def cli():
     """An intelligent tool for monitoring and analyzing EU public procurement data."""
     pass
 
-# --- Commands ---
 
+@cli.command(help="Fetch and optionally store procurement notices from TED API.")
+@click.option("--start-date", required=True, callback=validate_date_yyyymmdd)
+@click.option("--end-date", required=True, callback=validate_date_yyyymmdd)
+@click.option("--mode", type=click.Choice(["pagination", "scroll", "full-scroll"]), default="pagination")
+@click.option("--filters", required=False)
+@click.option("--output", type=click.Choice(["csv", "json", "none"]), default="none", show_default=True)
+@click.option("--output-file", required=False)
+@click.option("--db", "--db-url", required=False, help="PostgreSQL connection URL.")
+@click.option("--table", "--db-table", default="notices", show_default=True)
+@click.option("--no-preprocess", is_flag=True, help="Disable preprocessing (required for DB storage).")
+def fetch(start_date, end_date, mode, filters, output, output_file, db, table, no_preprocess):
+    from analyzer import api, preprocessing, storage
 
-@cli.command(help="Fetch procurement notices from TED API.")
-@click.option("--start-date", required=True, callback=validate_date_yyyymmdd, help="Start date in YYYYMMDD format.")
-@click.option("--end-date", required=True, callback=validate_date_yyyymmdd, help="End date in YYYYMMDD format.")
-@click.option("--mode", type=click.Choice(["pagination", "scroll", "full-scroll"]), default="pagination", show_default=True, help="Fetching mode.")
-@click.option("--filters", required=False, help="Additional filters for TED API query.")
-@click.option("--output", type=click.Choice(["csv", "json"]), default="csv", show_default=True, help="Output format.")
-@click.option("--output-file", required=False, help="Optional custom output file name.")
-def fetch(start_date, end_date, mode, filters, output, output_file):
-    from analyzer import api  # lazy import
     client = api.TEDAPIClient()
-
     query = client.build_query(start_date, end_date, filters)
-    if output_file is None:
+
+    if output_file is None and output != "none":
         output_file = "notices.csv" if output == "csv" else "notices.json"
+
+    store_to_db = bool(db)
+    db_options = None
+    if store_to_db:
+        if no_preprocess:
+            raise click.UsageError(
+                "Raw data cannot be stored to the database. Remove --no-preprocess to continue.")
+        db_options = {
+            "config": parse_db_url(db),
+            "table": table,
+            "preprocess": True
+        }
 
     if mode == "full-scroll":
         client.fetch_all_scroll(
-            query=query, output_file=output_file, output_format=output)
+            query=query,
+            output_file=None if output == "none" else output_file,
+            output_format=output if output != "none" else "json",
+            store_db=store_to_db,
+            db_options=db_options
+        )
     else:
         pagination_mode = "ITERATION" if mode == "scroll" else "PAGE_NUMBER"
         data = client.search_notices(
             query=query, pagination_mode=pagination_mode)
         notices = data.get("notices", [])
-        if output == "csv":
-            client.save_notices_as_csv(notices, output_file)
-        elif output == "json":
-            client.save_notices_as_json(notices, output_file)
 
-    click.echo(f"Saved output to {output_file}")
+        if not notices:
+            click.echo("No notices retrieved.")
+            return
 
+        df = pd.DataFrame(notices)
 
-@cli.command(help="Start scheduled synchronization of procurement notices.")
-@click.option("--interval", type=int, default=1440, show_default=True, help="Sync interval in minutes.")
-@click.option("--start-days-ago", type=int, default=7, show_default=True, help="Days to look back if no previous sync.")
-@click.option("--filters", required=False, help="Additional filters for TED API.")
-@click.option("--output", type=click.Choice(["csv", "json"]), default="csv", show_default=True, help="Output format.")
-@click.option("--output-file", required=False, help="Optional custom output file name.")
-def sync(interval, start_days_ago, filters, output, output_file):
-    from analyzer import sync
-    sync.start_scheduler(
-        interval_minutes=interval,
-        start_days_ago=start_days_ago,
-        filters=filters,
-        output_format=output,
-        output_file=output_file,
-    )
+        if output != "none":
+            if output == "csv":
+                client.save_notices_as_csv(notices, output_file)
+            elif output == "json":
+                client.save_notices_as_json(notices, output_file)
+            click.echo(f"Saved {len(df)} records to {output_file}")
 
-
-@cli.command(help="Preprocess retrieved notices (optional validation, storage, logging).")
-@click.option("--input", required=True, help="Input file path (CSV or JSON).")
-@click.option("--output", required=False, help="Optional output file path.")
-@click.option("--validate", is_flag=True, help="Enable validation of input data.")
-@click.option("--db", required=False, help="Optional database URL to store processed notices.")
-@click.option("--log", is_flag=True, help="Enable detailed logging.")
-def preprocess(input, output, validate, db, log):
-    click.echo(f"[preprocess] {input=} {output=} {validate=} {db=} {log=}")
+        if store_to_db:
+            df_cleaned = preprocessing.preprocess_notices(df)
+            storage.store_dataframe_to_postgres(
+                df_cleaned, table, db_options["config"])
+            click.echo(
+                f"Stored {len(df_cleaned)} rows to table '{table}' in PostgreSQL.")
 
 
 @cli.command(help="View system logs.")

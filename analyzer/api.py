@@ -3,6 +3,7 @@ import requests
 import logging
 import os
 import pandas as pd
+from analyzer import preprocessing, storage
 
 
 class TEDAPIError(Exception):
@@ -184,11 +185,24 @@ class TEDAPIClient:
         except ValueError as e:
             raise TEDAPIError(f"Invalid JSON in response: {e}") from e
 
-    def fetch_all_scroll(self, query: str, fields: list = None, limit: int = 250, checkpoint_file: str = ".token", output_file: str = None, output_format: str = "csv") -> list:
+    def fetch_all_scroll(
+        self,
+        query: str,
+        fields: list = None,
+        limit: int = 250,
+        checkpoint_file: str = ".token",
+        output_file: str = None,
+        output_format: str = "csv",
+        store_db: bool = False,
+        db_options: dict = None
+    ) -> list:
         """
-        Fetch all available notices matching the query using scroll (iteration) mode.
-        Supports crash recovery via checkpoint saving.
-        Writes results incrementally if CSV output is selected.
+        Fetch all available notices using scroll (iteration) mode.
+
+        Supports:
+        - Crash recovery with checkpoint token
+        - Incremental saving to CSV or JSON
+        - Streaming to PostgreSQL with optional preprocessing
         """
         all_notices = []
         seen_pub_ids = set()
@@ -216,8 +230,7 @@ class TEDAPIClient:
             except Exception as e:
                 self.logger.error(f"Failed to delete output file: {e}")
 
-        # Write header only on first CSV batch
-        first_batch = not os.path.exists(output_file)
+        first_batch = not os.path.exists(output_file) if output_file else False
 
         while True:
             batch_count += 1
@@ -269,11 +282,25 @@ class TEDAPIClient:
             if output_file and output_format == "csv" and batch_data:
                 self.save_notices_as_csv(
                     batch_data, output_file, append=not first_batch)
-                first_batch = False  # After first write, never write headers again
+                first_batch = False
+
+            # Save to DB (incremental, with optional preprocessing)
+            if store_db and batch_data:
+                df = pd.DataFrame(batch_data)
+                if db_options.get("preprocess", True):
+                    try:
+                        df = preprocessing.preprocess_notices(df)
+                    except Exception as e:
+                        self.logger.error(f"Preprocessing failed: {e}")
+                        continue  # skip this batch
+                try:
+                    storage.store_dataframe_to_postgres(
+                        df, db_options["table"], db_options["config"])
+                except Exception as e:
+                    self.logger.error(f"Database insert failed: {e}")
 
             iteration_token = token
             last_batch_ids = pub_ids
-
             try:
                 with open(checkpoint_file, "w", encoding="utf-8") as f:
                     f.write(iteration_token)
