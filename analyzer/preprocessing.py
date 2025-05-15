@@ -78,8 +78,9 @@ def handle_categorical_data(df, top_n=10):
 
 
 def remove_irrelevant_columns(df):
+    # We cannot drop 'publication-number' due to requirements regarding traceability of notices back to the original TED API.
     columns_to_drop = [
-        'publication-number', 'classification-cpv', 'recurrence-lot',
+        'classification-cpv', 'recurrence-lot',
         'duration-period-value-lot', 'dispatch-date', 'publication-date',
         'TV_CUR', 'renewal-maximum-lot', 'term-performance-lot', 'links'
     ]

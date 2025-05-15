@@ -140,14 +140,6 @@ def sync(interval, start_days_ago, filters, output, output_file, db, table):
     )
 
 
-@cli.command(help="View system logs.")
-@click.option("--since", required=False, help="Show logs since this datetime (YYYYMMDD format).")
-@click.option("--errors-only", is_flag=True, help="Show only error log entries.")
-@click.option("--filter", "log_filter", required=False, help="Keyword filter for log messages.")
-def logs(since, errors_only, log_filter):
-    click.echo(f"[logs] {since=} {errors_only=} {log_filter=}")
-
-
 @cli.command("detect-outliers", help="Detect outliers in procurement data.")
 @click.option("--start-date", required=False, callback=validate_date_yyyymmdd, help="Start date filter (YYYYMMDD).")
 @click.option("--end-date", required=False, callback=validate_date_yyyymmdd, help="End date filter (YYYYMMDD).")
