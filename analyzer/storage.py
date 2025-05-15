@@ -6,7 +6,7 @@ import pandas as pd
 def store_dataframe_to_postgres(df: pd.DataFrame, table_name: str, db_config: dict):
     conn = None
     try:
-        conn = psycopg2.connect(**db_config)
+        conn = psycopg2.connect(connect_timeout=5, **db_config)
         cursor = conn.cursor()
 
         # Ensure table exists with all required columns
