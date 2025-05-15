@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Protenderizer Fetch</title>
+</head>
+<body>
+    <h1>Fetch Procurement Notices</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+        {% for category, message in messages %}
+          <li><strong>{{ category }}:</strong> {{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    <form method="post">
+        <label>Start Date (YYYYMMDD):</label><br>
+        <input type="text" name="start_date"><br><br>
+        <label>End Date (YYYYMMDD):</label><br>
+        <input type="text" name="end_date"><br><br>
+        <label>Output:</label><br>
+        <select name="output">
+            <option value="db">PostgreSQL</option>
+            <option value="csv">CSV File</option>
+            <option value="json">JSON File</option>
+        </select><br><br>
+        <label>DB Table Name (if storing to DB):</label><br>
+        <input type="text" name="db_table" value="notices"><br><br>
+        <input type="submit" value="Fetch">
+    </form>
+    {% if message %}
+        <p><strong>{{ message }}</strong></p>
+    {% endif %}
+</body>
+</html>
