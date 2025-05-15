@@ -10,7 +10,8 @@ dependencies = [
     "scikit-learn",
     "schedule",
     "psycopg2",
-    "sqlalchemy"
+    "sqlalchemy",
+    "python-dotenv"
 ]
 
 [project.scripts]
