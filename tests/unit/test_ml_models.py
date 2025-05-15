@@ -3,9 +3,11 @@ import pandas as pd
 import pytest
 
 # test for extremely high value (clearly an outlier)
+
+
 def test_high_outlier():
     df = pd.DataFrame({
-        'TVH': [500000, 520000, 510000, 505000, 9800000],  
+        'TVH': [500000, 520000, 510000, 505000, 9800000],
         'duration-period-value-lot': [12, 12, 12, 12, 12]
     })
     result = detect_outliers(df.copy(), ['TVH', 'duration-period-value-lot'])
@@ -14,18 +16,21 @@ def test_high_outlier():
     assert result.loc[df['TVH'] == 9800000, 'outlier'].iloc[0] == -1
     assert all(result.loc[df['TVH'] < 1000000, 'outlier'] == 1)
 # low within high values
+
+
 def test_low_outlier():
     df = pd.DataFrame({
-        'TVH': [500000, 520000, 510000, 505000, 10000],  
+        'TVH': [500000, 520000, 510000, 505000, 10000],
         'duration-period-value-lot': [12, 12, 12, 12, 12]
     })
     result = detect_outliers(df.copy(), ['TVH', 'duration-period-value-lot'])
     assert 'outlier' in result.columns
     assert result.loc[4, 'outlier'] == 1, "Low-value outlier not detected."
 
+
 def test_high_and_low_outliers():
     df = pd.DataFrame({
-        'TVH': [10000, 500000, 510000, 520000, 9800000],  
+        'TVH': [10000, 500000, 510000, 520000, 9800000],
         'duration-period-value-lot': [12, 12, 12, 12, 12]
     })
     result = detect_outliers(df.copy(), ['TVH', 'duration-period-value-lot'])
@@ -34,6 +39,8 @@ def test_high_and_low_outliers():
     assert result.loc[4, 'outlier'] == 1, "High-value outlier not detected."
 
 # Outlier column values are valid
+
+
 def test_outlier_column_has_valid_labels():
     df = pd.DataFrame({
         'TVH': [100000, 200000, 300000, 400000, 10000000],
@@ -68,7 +75,7 @@ def test_all_inliers_with_uniform_data():
     })
     result = detect_outliers(df.copy(), ['TVH', 'duration-period-value-lot'])
     outliers = result['outlier'].value_counts().to_dict()
-    
+
     # false positive avoidance (Chatty told me to use it)
     assert outliers.get(-1, 0) <= 1
 
@@ -81,4 +88,5 @@ def test_output_dataframe_structure():
     })
     result = detect_outliers(df.copy(), ['TVH', 'duration-period-value-lot'])
     assert result.shape == (4, 3)  # original 2 cols + 1 'outlier'
-    assert list(result.columns) == ['TVH', 'duration-period-value-lot', 'outlier']
+    assert list(result.columns) == [
+        'TVH', 'duration-period-value-lot', 'outlier']

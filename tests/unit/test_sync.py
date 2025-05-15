@@ -15,7 +15,7 @@ def test_sync_once_success_csv(tmp_path, requests_mock):
     requests_mock.post(
         url, json={
             "notices": [{"publication-number": "PUB1"}],
-            "iterationNextToken": "dummy_token_1"   # <-- ADD THIS!
+            "iterationNextToken": "dummy_token_1"
         }, status_code=200)
 
     with patch("time.sleep", return_value=None):
@@ -97,3 +97,42 @@ def test_sync_once_api_failure(tmp_path, requests_mock):
     # Even if sync fails, files should not exist
     assert not output_file.exists()
     assert not last_sync_file.exists()
+
+
+@pytest.mark.sync
+def test_sync_once_saves_to_postgres(tmp_path, requests_mock):
+    """Test sync_once triggers DB store if db_url and table are provided."""
+    last_sync_file = tmp_path / ".last_sync"
+
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    requests_mock.post(
+        url, json={
+            "notices": [{"publication-number": "PUB1"}],
+            "iterationNextToken": "dummy_token_1"
+        }, status_code=200)
+
+    with patch("time.sleep", return_value=None), \
+            patch("analyzer.preprocessing.preprocess_notices") as mock_preprocess, \
+            patch("analyzer.storage.store_dataframe_to_postgres") as mock_store:
+
+        # Preprocessing just returns a dummy DataFrame
+        mock_preprocess.return_value = pd.DataFrame(
+            [{"publication-number": "PUB1"}])
+
+        sync.sync_once(
+            start_days_ago=7,
+            filters=None,
+            output_file=None,
+            output_format="none",
+            last_sync_file=str(last_sync_file),
+            db_url="postgres://user:pass@localhost/dbname",
+            db_table="notices",
+            preprocess=True
+        )
+
+        # Now we should expect it was called
+        assert mock_store.called
+        args, kwargs = mock_store.call_args
+        assert isinstance(args[0], pd.DataFrame)
+        assert args[1] == "notices"
+        assert isinstance(args[2], dict)
