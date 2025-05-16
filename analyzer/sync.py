@@ -41,7 +41,7 @@ def sync_once(start_days_ago=7, filters=None,
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     query = client.build_query(last_sync, today, filters)
 
-    print(f"[sync] Syncing notices from {last_sync} to {today}...")
+    print(f"[sync] Syncing notices from {last_sync} to {today}.")
 
     store_to_db = bool(db_url)
     db_options = None
@@ -61,7 +61,9 @@ def sync_once(start_days_ago=7, filters=None,
             output_file=None if output_format == "none" else output_file,
             output_format=output_format,
             store_db=store_to_db,
-            db_options=db_options
+            db_options=db_options,
+            progress_start_date=last_sync,
+            progress_end_date=today
         )
         save_last_sync_time(last_sync_file)
         print("[sync] Synchronization completed successfully.")

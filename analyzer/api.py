@@ -4,6 +4,8 @@ import logging
 import os
 import pandas as pd
 from analyzer import preprocessing, storage
+from datetime import datetime
+from tqdm import tqdm
 
 
 class TEDAPIError(Exception):
@@ -194,7 +196,9 @@ class TEDAPIClient:
         output_file: str = None,
         output_format: str = "csv",
         store_db: bool = False,
-        db_options: dict = None
+        db_options: dict = None,
+        progress_start_date: str = None,
+        progress_end_date: str = None
     ) -> list:
         """
         Fetch all available notices using scroll (iteration) mode.
@@ -210,6 +214,27 @@ class TEDAPIClient:
         duplicate_batch_streak = 0
         last_batch_ids = None
         batch_count = 0
+
+        def estimate_progress(pub_date_str: str):
+            try:
+                parsed_date = pd.to_datetime(pub_date_str.split("+")[0])
+            except Exception:
+                return 0.0
+            if parsed_date < progress_start or parsed_date > progress_end:
+                return 0.0
+            duration = (progress_end - progress_start).total_seconds()
+            elapsed = (parsed_date - progress_start).total_seconds()
+            return max(0.0, min(elapsed / duration, 1.0))
+
+        use_progress = progress_start_date and progress_end_date
+        if use_progress:
+            progress_start = datetime.strptime(progress_start_date, "%Y%m%d")
+            progress_end = datetime.strptime(progress_end_date, "%Y%m%d")
+            pbar = tqdm(total=1.0, position=0, leave=True,
+                        bar_format="Estimated progress: {percentage:3.0f}%|{bar}|")
+            last_progress = 0.0
+        else:
+            pbar = None
 
         resuming_from_checkpoint = False
         if os.path.exists(checkpoint_file):
@@ -279,6 +304,19 @@ class TEDAPIClient:
                     seen_pub_ids.add(pub_id)
                     batch_data.append(notice)
 
+            if pbar:
+                pub_dates = [n.get("publication-date", "")
+                             for n in batch_data if n.get("publication-date")]
+                estimates = [estimate_progress(d) for d in pub_dates]
+                if estimates:
+                    current_estimate = max(estimates)
+                    if current_estimate >= 1.0:
+                        current_estimate = 0.99  # prevent premature 100%
+                    delta = current_estimate - last_progress
+                    if delta > 0:
+                        pbar.update(delta)
+                        last_progress = current_estimate
+
             if output_file and output_format == "csv" and batch_data:
                 self.save_notices_as_csv(
                     batch_data, output_file, append=not first_batch)
@@ -308,6 +346,10 @@ class TEDAPIClient:
                 self.logger.error(f"Failed to write checkpoint file: {e}")
 
             time.sleep(0.6)
+
+        if pbar:
+            pbar.update(1.0 - last_progress)
+            pbar.close()
 
         # Done scrolling
         if os.path.exists(checkpoint_file):

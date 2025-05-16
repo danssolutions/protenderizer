@@ -88,7 +88,9 @@ def fetch(start_date, end_date, mode, filters, output, output_file, db, table):
             output_file=None if output == "none" or store_to_db else resolved_output_file,
             output_format=output if output in ("csv", "json") else "json",
             store_db=store_to_db,
-            db_options=db_options
+            db_options=db_options,
+            progress_start_date=start_date,
+            progress_end_date=end_date
         )
     else:
         data = client.search_notices(
@@ -145,29 +147,31 @@ def sync(interval, start_days_ago, filters, output, output_file, db, table):
 @click.option("--table", "--db-table", default="notices", show_default=True)
 @click.option("--output", type=click.Choice(["csv", "json"]), default="json", show_default=True)
 @click.option("--output-file", required=False)
-def detect_outliers(db, table, output, output_file):
-
+@click.option("--arima-order", default="4,2,3", help="ARIMA order as comma-separated values (p,d,q). Default is 4,2,3")
+@click.option("--forecast-steps", default=12, show_default=True, help="Number of future months to forecast.")
+@click.option("--plot", is_flag=True, help="Generate and save a forecast plot.")
+@click.option("--plot-file", required=False, help="Path to save the plot if --plot is enabled.")
+def detect_outliers(db, table, output, output_file, arima_order, forecast_steps, plot, plot_file):
     try:
         db_config = resolve_db_config(db)
         engine = sqlalchemy.create_engine(
             f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
         )
+        arima_order_tuple = tuple(int(x) for x in arima_order.split(","))
         df = pd.read_sql_table(table, con=engine)
         series = arima.prepare_monthly_counts(df)
         series_imputed = arima.impute_outliers_cusum(series)
-        train, test, forecast = arima.train_and_forecast_arima(series_imputed)
+        train, test, forecast = arima.train_and_forecast_arima(
+            series_imputed, order=arima_order_tuple, forecast_steps=forecast_steps, plot=plot, plot_path=plot_file)
 
         # Output results
         output_file = resolve_output_settings(output, output_file)
-        result_df = pd.DataFrame({
-            "date": series_imputed.index,
-            "count": series,
-            "imputed": series_imputed,
-            "forecast": pd.concat(
-                [pd.Series([None] * len(series_imputed)), forecast],
-                ignore_index=False
-            )
-        })
+        full_index = series_imputed.index.union(forecast.index)
+        result_df = pd.DataFrame(index=full_index)
+        result_df["count"] = series.reindex(full_index)
+        result_df["imputed"] = series_imputed.reindex(full_index)
+        result_df["forecast"] = forecast.reindex(full_index)
+        result_df = result_df.reset_index().rename(columns={"index": "date"})
 
         if output == "csv":
             result_df.to_csv(output_file, index=False)
