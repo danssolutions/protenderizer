@@ -30,11 +30,17 @@ def test_detect_outliers_fails_with_too_little_data(monkeypatch):
     """detect-outliers should fail gracefully with insufficient data."""
     runner = CliRunner()
 
+    # Simulate minimal data
     monkeypatch.setattr("analyzer.arima.prepare_monthly_counts",
                         lambda df: pd.Series([1, 2], index=pd.date_range("2020-01-01", periods=2, freq="MS")))
 
+    # Simulate ARIMA error
     monkeypatch.setattr("analyzer.arima.train_and_forecast_arima",
                         lambda series, **kwargs: (_ for _ in ()).throw(ValueError("Insufficient data for training")))
+
+    # Bypass database access
+    monkeypatch.setattr("pandas.read_sql_table",
+                        lambda table, con: pd.DataFrame({"publication-date": ["2020-01-01", "2020-02-01"]}))
 
     result = runner.invoke(cli, [
         "detect-outliers",
