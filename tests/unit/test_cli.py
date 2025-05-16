@@ -1,6 +1,7 @@
 import pytest
 from click.testing import CliRunner
 from analyzer.cli import cli
+import pandas as pd
 
 
 @pytest.mark.cli
@@ -25,21 +26,23 @@ def test_sync_command_invokes_scheduler(monkeypatch):
 
 
 @pytest.mark.cli
-def test_logs_stub_output():
-    """logs should return placeholder output."""
+def test_detect_outliers_fails_with_too_little_data(monkeypatch):
+    """detect-outliers should fail gracefully with insufficient data."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["logs"])
-    assert result.exit_code == 0
-    assert "[logs]" in result.output
 
+    monkeypatch.setattr("analyzer.arima.prepare_monthly_counts",
+                        lambda df: pd.Series([1, 2], index=pd.date_range("2020-01-01", periods=2, freq="MS")))
 
-@pytest.mark.cli
-def test_detect_outliers_stub_output():
-    """detect-outliers should run and print placeholder."""
-    runner = CliRunner()
-    result = runner.invoke(cli, ["detect-outliers"])
-    assert result.exit_code == 0
-    assert "[detect-outliers]" in result.output
+    monkeypatch.setattr("analyzer.arima.train_and_forecast_arima",
+                        lambda series, **kwargs: (_ for _ in ()).throw(ValueError("Insufficient data for training")))
+
+    result = runner.invoke(cli, [
+        "detect-outliers",
+        "--output", "csv"
+    ])
+
+    assert result.exit_code != 0
+    assert "Insufficient data" in result.output
 
 
 @pytest.mark.cli
@@ -52,9 +55,12 @@ def test_list_outliers_requires_input():
 
 
 @pytest.mark.cli
-def test_list_outliers_stub_output():
-    """list-outliers runs with required --input."""
+def test_list_outliers_file_not_found():
+    """list-outliers should show error message if file doesn't exist."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["list-outliers", "--input", "dummy.json"])
+    result = runner.invoke(cli, [
+        "list-outliers",
+        "--input", "nonexistent.json"
+    ])
     assert result.exit_code == 0
-    assert "[list-outliers]" in result.output
+    assert "not found" in result.output

@@ -81,7 +81,7 @@ def remove_irrelevant_columns(df):
     # We cannot drop 'publication-number' due to requirements regarding traceability of notices back to the original TED API.
     columns_to_drop = [
         'classification-cpv', 'recurrence-lot',
-        'duration-period-value-lot', 'dispatch-date', 'publication-date',
+        'duration-period-value-lot', 'dispatch-date',
         'TV_CUR', 'renewal-maximum-lot', 'term-performance-lot', 'links'
     ]
     df = df.drop(columns=columns_to_drop, errors='ignore')

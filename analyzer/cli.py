@@ -2,8 +2,10 @@ import click
 import datetime
 import pandas as pd
 import os
+import sqlalchemy
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+from analyzer import api, preprocessing, storage, sync as sync_module, arima
 
 load_dotenv()
 
@@ -63,7 +65,6 @@ def cli():
 @click.option("--db", "--db-url", required=False, help="PostgreSQL connection URL (overrides DB_URL env)")
 @click.option("--table", "--db-table", default="notices", show_default=True)
 def fetch(start_date, end_date, mode, filters, output, output_file, db, table):
-    from analyzer import api, preprocessing, storage
 
     client = api.TEDAPIClient()
     query = client.build_query(start_date, end_date, filters)
@@ -123,7 +124,6 @@ def fetch(start_date, end_date, mode, filters, output, output_file, db, table):
 @click.option("--db", "--db-url", required=False, help="PostgreSQL connection URL.")
 @click.option("--table", "--db-table", default="notices", show_default=True)
 def sync(interval, start_days_ago, filters, output, output_file, db, table):
-    from analyzer import sync as sync_module
 
     resolved_output_file = resolve_output_settings(output, output_file)
     preprocess = output == "db"
@@ -140,21 +140,78 @@ def sync(interval, start_days_ago, filters, output, output_file, db, table):
     )
 
 
-@cli.command("detect-outliers", help="Detect outliers in procurement data.")
-@click.option("--start-date", required=False, callback=validate_date_yyyymmdd, help="Start date filter (YYYYMMDD).")
-@click.option("--end-date", required=False, callback=validate_date_yyyymmdd, help="End date filter (YYYYMMDD).")
-@click.option("--method", type=click.Choice(["time-series", "clustering", "nlp"]), default="clustering", show_default=True)
-@click.option("--confidence", type=float, default=0.9, show_default=True)
-@click.option("--output", type=click.Choice(["json", "csv"]), default="json", show_default=True)
-def detect_outliers(start_date, end_date, method, confidence, output):
-    click.echo(
-        f"[detect-outliers] {start_date=} {end_date=} {method=} {confidence=} {output=}")
+@cli.command("detect-outliers", help="Detect outliers using time-series ARIMA + CUSUM.")
+@click.option("--db", "--db-url", required=False)
+@click.option("--table", "--db-table", default="notices", show_default=True)
+@click.option("--output", type=click.Choice(["csv", "json"]), default="json", show_default=True)
+@click.option("--output-file", required=False)
+def detect_outliers(db, table, output, output_file):
+
+    try:
+        db_config = resolve_db_config(db)
+        engine = sqlalchemy.create_engine(
+            f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+        )
+        df = pd.read_sql_table(table, con=engine)
+        series = arima.prepare_monthly_counts(df)
+        series_imputed = arima.impute_outliers_cusum(series)
+        train, test, forecast = arima.train_and_forecast_arima(series_imputed)
+
+        # Output results
+        output_file = resolve_output_settings(output, output_file)
+        result_df = pd.DataFrame({
+            "date": series_imputed.index,
+            "count": series,
+            "imputed": series_imputed,
+            "forecast": pd.concat(
+                [pd.Series([None] * len(series_imputed)), forecast],
+                ignore_index=False
+            )
+        })
+
+        if output == "csv":
+            result_df.to_csv(output_file, index=False)
+        else:
+            result_df.to_json(output_file, orient="records",
+                              indent=2, date_format="iso")
+
+        click.echo(f"Saved outlier analysis to {output_file}")
+        click.echo(
+            "Attribution: This data is sourced from the EU’s Tenders Electronic Daily (TED).")
+
+    except Exception as e:
+        raise click.ClickException(str(e))
 
 
-@cli.command("list-outliers", help="List detected outliers from previous runs.")
-@click.option("--input", required=True, help="Input file containing detected outliers.")
+@cli.command("list-outliers", help="List previously detected outliers.")
+@click.option("--input", required=True, help="Input CSV or JSON file containing anomaly results.")
 @click.option("--start-date", required=False, callback=validate_date_yyyymmdd)
 @click.option("--end-date", required=False, callback=validate_date_yyyymmdd)
-@click.option("--filter", required=False, help="Optional keyword filter.")
+@click.option("--filter", required=False, help="Keyword to filter by country or anomaly type (stub).")
 def list_outliers(input, start_date, end_date, filter):
-    click.echo(f"[list-outliers] {input=} {start_date=} {end_date=} {filter=}")
+    if not os.path.exists(input):
+        click.echo(f"Input file {input} not found.")
+        return
+
+    ext = os.path.splitext(input)[-1].lower()
+    if ext == ".csv":
+        df = pd.read_csv(input)
+    elif ext == ".json":
+        df = pd.read_json(input)
+    else:
+        click.echo("Unsupported file format. Use CSV or JSON.")
+        return
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    if start_date:
+        df = df[df["date"] >= pd.to_datetime(start_date)]
+    if end_date:
+        df = df[df["date"] <= pd.to_datetime(end_date)]
+    if filter:
+        df = df[df.apply(lambda row: filter.lower()
+                         in str(row).lower(), axis=1)]
+
+    if df.empty:
+        click.echo("No matching outliers found.")
+    else:
+        click.echo(df.to_markdown(index=False))
