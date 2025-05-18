@@ -12,7 +12,8 @@ dependencies = [
     "psycopg2",
     "sqlalchemy",
     "python-dotenv",
-    "statsmodels"
+    "statsmodels",
+    "tqdm"
 ]
 
 [project.scripts]
