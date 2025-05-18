@@ -13,7 +13,8 @@ dependencies = [
     "sqlalchemy",
     "python-dotenv",
     "statsmodels",
-    "tqdm"
+    "tqdm",
+    "matplotlib"
 ]
 
 [project.scripts]
