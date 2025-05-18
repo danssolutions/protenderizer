@@ -28,6 +28,15 @@ SCHEMA_HINTS = {
 def store_dataframe_to_postgres(df: pd.DataFrame, table_name: str, db_config: dict):
     conn = None
     try:
+        # Drop rows with missing publication-number (important for PRIMARY KEY)
+        if "publication-number" in df.columns:
+            before = len(df)
+            df = df[df["publication-number"].notna()]
+            after = len(df)
+            if before != after:
+                logger.warning(
+                    f"Dropped {before - after} rows with missing 'publication-number'")
+
         conn = psycopg2.connect(**db_config)
         cursor = conn.cursor()
 
@@ -59,16 +68,26 @@ def store_dataframe_to_postgres(df: pd.DataFrame, table_name: str, db_config: di
                 cursor.execute(
                     f'ALTER TABLE {table_name} ADD COLUMN "{col}" {col_type};')
 
-        # Step 4: Insert data
+        # Step 4: Insert data in batches
         rows = [tuple(str(val) if pd.notna(val) else None for val in row)
                 for row in df.to_numpy()]
         quoted_cols = ", ".join(f'"{col}"' for col in df.columns)
         query = f'INSERT INTO {table_name} ({quoted_cols}) VALUES %s'
 
         logger.info(f"Inserting {len(rows)} rows into '{table_name}'.")
-        execute_values(cursor, query, rows)
-        conn.commit()
+        batch_size = 50000
+        for i in range(0, len(rows), batch_size):
+            chunk = rows[i:i+batch_size]
+            try:
+                execute_values(cursor, query, chunk)
+                logger.info(f"Inserted batch {i // batch_size + 1}")
+            except Exception as batch_error:
+                logger.error(
+                    f"Error in batch {i // batch_size + 1}: {batch_error}")
+                conn.rollback()
+                raise
 
+        conn.commit()
         cursor.close()
         logger.info(f"Finished storing data to table '{table_name}'.")
 
@@ -76,6 +95,7 @@ def store_dataframe_to_postgres(df: pd.DataFrame, table_name: str, db_config: di
         logger.error(f"Error storing DataFrame to PostgreSQL: {e}")
         if conn:
             conn.rollback()
+        raise
     finally:
         if conn:
             conn.close()

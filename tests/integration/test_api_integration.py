@@ -2,7 +2,7 @@ import pytest
 from analyzer import api
 
 
-@pytest.mark.integration
+@pytest.mark.api
 def test_fetch_notices_success_pagination():
     client = api.TEDAPIClient()
     data = client.search_notices(
@@ -11,7 +11,7 @@ def test_fetch_notices_success_pagination():
     assert "notices" in data
 
 
-@pytest.mark.integration
+@pytest.mark.api
 def test_fetch_notices_success_scroll():
     client = api.TEDAPIClient()
     data = client.search_notices(
@@ -21,7 +21,7 @@ def test_fetch_notices_success_scroll():
     assert "iterationNextToken" in data
 
 
-@pytest.mark.integration
+@pytest.mark.api
 def test_fetch_notices_time_interval_scroll():
     client = api.TEDAPIClient()
     query = "dispatch-date>20240101 AND dispatch-date<20241231"
@@ -31,7 +31,7 @@ def test_fetch_notices_time_interval_scroll():
     assert "notices" in data
 
 
-@pytest.mark.integration
+@pytest.mark.api
 def test_fetch_notices_filters_scroll():
     client = api.TEDAPIClient()
     query = "buyer-country=DEU"

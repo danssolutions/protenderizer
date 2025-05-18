@@ -10,7 +10,7 @@ from analyzer.storage import store_dataframe_to_postgres
 load_dotenv()
 
 
-@pytest.mark.integration
+@pytest.mark.storage
 def test_store_dataframe_roundtrip():
     """Insert a DataFrame and validate it was stored correctly in PostgreSQL."""
     db_config = {
@@ -23,8 +23,8 @@ def test_store_dataframe_roundtrip():
 
     table_name = f"test_table_{uuid.uuid4().hex[:8]}"
     df_in = pd.DataFrame([
-        {"foo": "alpha", "bar": "123"},
-        {"foo": "beta", "bar": "456"}
+        {"publication-number": "test-1", "foo": "alpha", "bar": "123"},
+        {"publication-number": "test-2", "foo": "beta", "bar": "456"}
     ])
 
     try:

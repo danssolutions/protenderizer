@@ -1,5 +1,7 @@
 import pandas as pd
 import logging
+import re
+import ast
 
 # Configure logging
 logger = logging.getLogger("Preprocessing")
@@ -50,30 +52,44 @@ def handle_missing_values(df):
 def convert_data_types(df):
     for col in ['dispatch-date', 'publication-date']:
         if col in df.columns:
-            df[col] = pd.to_datetime(
-                df[col], errors='coerce', utc=True, format='%Y-%m-%dT%H:%M:%S', exact=False)
+            # Parse datetime and drop timezones for consistency
+            # Strip timezone manually before parsing
+            df[col] = df[col].astype(str).str.split(
+                '+', n=1).str[0].str.replace('Z', '', regex=False)
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = df[col].dt.tz_localize(None)
     return df
 
 
 def handle_categorical_data(df, top_n=10):
     categorical_columns = ['notice-type',
                            'contract-nature', 'main-activity', 'buyer-country']
+
     for col in categorical_columns:
         if col not in df.columns:
             continue
 
-        # Flatten list-like entries
-        df[col] = df[col].apply(
-            lambda x: x[0] if isinstance(x, list) and x else x)
+        def extract_first(val):
+            if isinstance(val, str):
+                try:
+                    # Try parsing stringified list: e.g. "['works', 'services']"
+                    parsed = ast.literal_eval(val)
+                    if isinstance(parsed, list) and parsed:
+                        return str(parsed[0])
+                except Exception:
+                    pass
+                # If it’s a clean string, return as-is
+                return val.strip()
+            return "Others"  # fallback
 
-        # Replace categories outside the top N with 'Others'
+        df[col] = df[col].apply(extract_first)
+
+        # Simplify any outliers
         top_categories = df[col].value_counts().index[:top_n]
         df[col] = df[col].apply(
-            lambda x: x if x in top_categories else 'Others')
+            lambda x: x if x in top_categories else "Others")
 
-    # One-hot encode categorical variables
     df = pd.get_dummies(df, columns=categorical_columns, dummy_na=False)
-
     return df
 
 

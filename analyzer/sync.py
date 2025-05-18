@@ -39,14 +39,15 @@ def sync_once(start_days_ago=7, filters=None,
     client = TEDAPIClient()
     last_sync = load_last_sync_time(start_days_ago, last_sync_file)
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    query = client.build_query(last_sync, today, filters)
+    query = client.build_query(
+        start_date=last_sync, end_date=today, additional_filters=filters)
 
     print(f"[sync] Syncing notices from {last_sync} to {today}.")
 
     store_to_db = bool(db_url)
     db_options = None
     if store_to_db:
-        if not preprocess:
+        if output_format == "db" and not preprocess:
             raise ValueError(
                 "Cannot store raw data to DB. Preprocessing must be enabled.")
         db_options = {

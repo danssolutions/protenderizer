@@ -9,7 +9,7 @@ from analyzer import api
 # region Basic Search Tests
 
 
-@pytest.mark.basic
+@pytest.mark.api
 def test_search_success(requests_mock):
     """Test that a successful API call returns expected data."""
     sample_response = {"totalCount": 2, "results": [
@@ -31,7 +31,7 @@ def test_search_success(requests_mock):
         sent_payload["fields"], list)
 
 
-@pytest.mark.basic
+@pytest.mark.api
 def test_search_with_fields(requests_mock):
     """Test that specifying fields includes them in the request payload."""
     sample_response = {"totalCount": 1, "results": [
@@ -48,7 +48,7 @@ def test_search_with_fields(requests_mock):
     assert sent_payload["fields"] == fields
 
 
-@pytest.mark.basic
+@pytest.mark.api
 def test_search_iteration_mode(requests_mock):
     """Test using ITERATION pagination mode includes the token."""
     sample_response = {"totalCount": 0, "results": []}
@@ -69,7 +69,7 @@ def test_search_iteration_mode(requests_mock):
 # region Scroll Mode Tests
 
 
-@pytest.mark.scroll
+@pytest.mark.api
 def test_fetch_all_scroll_multiple_pages_csv(tmp_path, requests_mock):
     """Test fetch_all_scroll saving to CSV incrementally."""
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -96,7 +96,7 @@ def test_fetch_all_scroll_multiple_pages_csv(tmp_path, requests_mock):
     assert set(df["publication-number"]) == {"PUB1", "PUB2"}
 
 
-@pytest.mark.scroll
+@pytest.mark.api
 def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
     """Test fetch_all_scroll saving final result to JSON."""
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -124,7 +124,7 @@ def test_fetch_all_scroll_multiple_pages_json(tmp_path, requests_mock):
     assert set(n["publication-number"] for n in data) == {"PUB1", "PUB2"}
 
 
-@pytest.mark.scroll
+@pytest.mark.api
 def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
     """Test checkpoint resumption appending correctly."""
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -158,7 +158,7 @@ def test_fetch_all_scroll_checkpoint_resume_csv(tmp_path, requests_mock):
 # region Error Handling Tests
 
 
-@pytest.mark.error_handling
+@pytest.mark.retry
 def test_search_http_error_json(requests_mock):
     """Test that an HTTP error with a JSON body raises TEDAPIError."""
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -171,7 +171,7 @@ def test_search_http_error_json(requests_mock):
     assert "400" in str(excinfo.value)
 
 
-@pytest.mark.error_handling
+@pytest.mark.retry
 def test_search_http_error_text(requests_mock):
     """Test that an HTTP error with a plain text body raises TEDAPIError."""
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -183,7 +183,7 @@ def test_search_http_error_text(requests_mock):
     assert "503" in str(excinfo.value)
 
 
-@pytest.mark.error_handling
+@pytest.mark.retry
 def test_search_network_error(monkeypatch):
     """Test that a network error raises TEDAPIError."""
     client = api.TEDAPIClient()
@@ -217,7 +217,7 @@ def test_fetch_notices_exponential_retry(monkeypatch):
     assert len(calls) == 3
 
 
-@pytest.mark.rate_limit
+@pytest.mark.retry
 def test_fetch_notices_rate_limit(monkeypatch):
     """Test that rate limiting enforces minimum interval."""
     client = api.TEDAPIClient(rate_limit_per_minute=60)
@@ -255,7 +255,7 @@ def test_fetch_notices_retry_limit(monkeypatch):
 # region Logging Tests
 
 
-@pytest.mark.logging
+@pytest.mark.api
 def test_fetch_notices_log_success(tmp_path, requests_mock):
     """Test successful request logging."""
     log_file = tmp_path / "log_success.txt"
@@ -271,7 +271,7 @@ def test_fetch_notices_log_success(tmp_path, requests_mock):
     assert "SUCCESS" in logs
 
 
-@pytest.mark.logging
+@pytest.mark.api
 def test_fetch_notices_log_append_only(tmp_path, requests_mock):
     """Test that logs are appended, not overwritten."""
     log_file = tmp_path / "log_append.txt"
@@ -289,7 +289,7 @@ def test_fetch_notices_log_append_only(tmp_path, requests_mock):
     assert logs.count("SUCCESS") == 2
 
 
-@pytest.mark.logging
+@pytest.mark.api
 def test_fetch_notices_log_abnormal_response(tmp_path, requests_mock):
     """Test error logging when API returns error."""
     log_file = tmp_path / "log_error.txt"
