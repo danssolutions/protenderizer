@@ -158,7 +158,13 @@ def detect_outliers(db, table, output, output_file, arima_order, forecast_steps,
             f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
         )
         arima_order_tuple = tuple(int(x) for x in arima_order.split(","))
-        df = pd.read_sql_table(table, con=engine)
+
+        # Use server-side cursor for streaming results
+        click.echo(f"Fetching data from '{table}'...")
+        with engine.connect().execution_options(stream_results=True) as connection:
+            chunks = pd.read_sql_table(table, con=connection, chunksize=10000)
+            df = pd.concat(chunks, ignore_index=True)
+
         series = arima.prepare_monthly_counts(df)
         series_imputed = arima.impute_outliers_cusum(series)
         train, test, forecast = arima.train_and_forecast_arima(

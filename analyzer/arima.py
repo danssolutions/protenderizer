@@ -69,21 +69,41 @@ def cusum_mean_detection(series, target_mean=None, threshold=5.0, drift=0.5, min
                     f"CUSUM: Downward change at index {i}, value {x_val:.2f}")
 
     logger.info(
-        f"CUSUM detection complete — {len(detections)} outliers found.")
+        f"CUSUM detection complete - {len(detections)} outliers found.")
     return pd.Series(cusum_pos_values, index=series.index), pd.Series(cusum_neg_values, index=series.index), detections
 
 
 def prepare_monthly_counts(df: pd.DataFrame, date_col: str = "publication-date") -> pd.Series:
     logger.info("Preparing monthly counts...")
+
     if date_col not in df.columns:
         raise ValueError(f"Missing required date column: {date_col}")
 
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce", utc=True)
-    df = df.dropna(subset=[date_col]).copy()
-    df[date_col] = df[date_col].dt.tz_localize(None)
-    df.set_index(date_col, inplace=True)
+    # Fast datetime parsing - try format if known, otherwise cache=True
+    try:
+        df[date_col] = pd.to_datetime(
+            df[date_col], format="%Y-%m-%d", errors="coerce", utc=True)
+    except Exception:
+        df[date_col] = pd.to_datetime(
+            df[date_col], errors="coerce", utc=True, cache=True)
 
-    series = df.resample("ME").size()
+    # Drop rows with bad/missing dates
+    valid_dates = df[date_col].notna()
+    df = df.loc[valid_dates, [date_col]]
+
+    # Remove timezone - faster if done as a Series op before set_index
+    df[date_col] = df[date_col].dt.tz_localize(None)
+
+    # Avoid making a full copy of the DataFrame, and avoid inplace operations
+    df = df.sort_values(by=date_col)
+
+    # Set index and resample in one go
+    series = (
+        df.set_index(date_col)
+        .resample("ME")  # Month-End frequency
+        .size()
+    )
+
     series.name = "Notice Count"
     logger.info(f"Monthly count series prepared with {len(series)} points.")
     return series
@@ -126,11 +146,11 @@ def impute_outliers_cusum(series: pd.Series) -> pd.Series:
 
         if pd.notna(imputed_value):
             logger.info(
-                f"Imputed index {idx}: {original_value:.2f} → {imputed_value:.2f}")
+                f"Imputed index {idx}: {original_value:.2f} -> {imputed_value:.2f}")
             series_imputed.iloc[idx] = imputed_value
         else:
             logger.warning(
-                f"Could not impute value at index {idx} — original={original_value:.2f}")
+                f"Could not impute value at index {idx} - original={original_value:.2f}")
 
     logger.info("Outlier imputation complete.")
     return series_imputed
@@ -193,6 +213,7 @@ def train_and_forecast_arima(
         if plot_path:
             plt.savefig(plot_path)
             logger.info(f"Saved plot to {plot_path}")
+            plt.close("all")
         else:
             plt.show()
 
