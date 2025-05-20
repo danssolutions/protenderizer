@@ -1,8 +1,10 @@
 from analyzer import arima
 import pandas as pd
 import numpy as np
+import pytest
 
 
+@pytest.mark.performance
 def test_prepare_monthly_counts_performance(benchmark):
     # Simulate 50k notices over several years
     # hourly notices for ~6 years
@@ -15,6 +17,7 @@ def test_prepare_monthly_counts_performance(benchmark):
     assert not result_series.isna().any()
 
 
+@pytest.mark.performance
 def test_detect_outliers_pipeline_performance(benchmark):
     # Simulate ~10k notices over 3 years (to produce ~36 monthly data points)
     dates = pd.date_range("2019-01-01", periods=10000, freq="h")
