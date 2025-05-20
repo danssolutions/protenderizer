@@ -159,24 +159,38 @@ def detect_outliers(db, table, output, output_file, arima_order, forecast_steps,
         )
         arima_order_tuple = tuple(int(x) for x in arima_order.split(","))
 
-        # Use server-side cursor for streaming results
         click.echo(f"Fetching data from '{table}'...")
         with engine.connect().execution_options(stream_results=True) as connection:
             chunks = pd.read_sql_table(table, con=connection, chunksize=10000)
             df = pd.concat(chunks, ignore_index=True)
 
+        # Compute and impute
         series = arima.prepare_monthly_counts(df)
-        series_imputed = arima.impute_outliers_cusum(series)
+        series_imputed, explanations = arima.impute_outliers_cusum(series)
         train, test, forecast = arima.train_and_forecast_arima(
-            series_imputed, order=arima_order_tuple, forecast_steps=forecast_steps, plot=plot, plot_path=plot_file)
+            series_imputed,
+            order=arima_order_tuple,
+            forecast_steps=forecast_steps,
+            plot=plot,
+            plot_path=plot_file
+        )
 
-        # Output results
+        # Merge results
         output_file = resolve_output_settings(output, output_file)
         full_index = series_imputed.index.union(forecast.index)
+
         result_df = pd.DataFrame(index=full_index)
         result_df["count"] = series.reindex(full_index)
         result_df["imputed"] = series_imputed.reindex(full_index)
         result_df["forecast"] = forecast.reindex(full_index)
+
+        # Add human-readable explanations
+        result_df["explanation"] = None
+        for idx, reason in explanations.items():
+            ts_index = series_imputed.index[idx]
+            result_df.loc[ts_index, "explanation"] = reason
+
+        # Final output
         result_df = result_df.reset_index().rename(columns={"index": "date"})
 
         if output == "csv":
@@ -193,12 +207,17 @@ def detect_outliers(db, table, output, output_file, arima_order, forecast_steps,
         raise click.ClickException(str(e))
 
 
-@cli.command("list-outliers", help="List previously detected outliers.")
+@cli.command("list-outliers", help="List previously detected outliers with filtering and explanations.")
 @click.option("--input", required=True, help="Input CSV or JSON file containing anomaly results.")
 @click.option("--start-date", required=False, callback=validate_date_yyyymmdd)
 @click.option("--end-date", required=False, callback=validate_date_yyyymmdd)
-@click.option("--filter", required=False, help="Keyword to filter by country or anomaly type (stub).")
-def list_outliers(input, start_date, end_date, filter):
+@click.option("--filter", required=False, help="Keyword to filter by explanation or metadata (case-insensitive).")
+@click.option("--min-cost-deviation", type=float, help="Minimum tender-value deviation from historical mean.")
+@click.option("--min-bidders", type=int, help="Minimum number of bidders (if present).")
+@click.option("--max-count", type=int, help="Limit the number of anomalies shown.")
+def list_outliers(input, start_date, end_date, filter, min_cost_deviation, min_bidders, max_count):
+    import numpy as np
+
     if not os.path.exists(input):
         click.echo(f"Input file {input} not found.")
         return
@@ -212,16 +231,45 @@ def list_outliers(input, start_date, end_date, filter):
         click.echo("Unsupported file format. Use CSV or JSON.")
         return
 
+    # Normalize date column
+    if "date" not in df.columns:
+        click.echo("Input data must contain a 'date' column.")
+        return
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    # Basic date filtering
     if start_date:
         df = df[df["date"] >= pd.to_datetime(start_date)]
     if end_date:
         df = df[df["date"] <= pd.to_datetime(end_date)]
+
+    # Keyword filter
     if filter:
-        df = df[df.apply(lambda row: filter.lower()
-                         in str(row).lower(), axis=1)]
+        keyword = filter.lower()
+        df = df[df.apply(lambda row: keyword in str(row).lower(), axis=1)]
+
+    # Cost deviation filter
+    if min_cost_deviation and "tender-value" in df.columns:
+        historical_mean = df["tender-value"].mean(skipna=True)
+        df = df[df["tender-value"] > historical_mean + min_cost_deviation]
+
+    # Min bidders filter
+    if min_bidders and "number-of-bidders" in df.columns:
+        df = df[df["number-of-bidders"] >= min_bidders]
+
+    # Limit result size
+    if max_count:
+        df = df.head(max_count)
 
     if df.empty:
         click.echo("No matching outliers found.")
-    else:
-        click.echo(df.to_markdown(index=False))
+        return
+
+    # Pick subset of relevant columns to display
+    columns_to_show = ["date", "tender-value",
+                       "number-of-bidders", "forecast", "explanation"]
+    existing_cols = [col for col in columns_to_show if col in df.columns]
+    display_df = df[existing_cols +
+                    [c for c in df.columns if c not in existing_cols]].copy()
+
+    click.echo(display_df.to_markdown(index=False, tablefmt="grid"))

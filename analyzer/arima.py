@@ -7,14 +7,13 @@ import warnings
 from typing import Tuple
 import logging
 import time
+from typing import Tuple
 
 logger = logging.getLogger("ARIMA")
 logger.setLevel(logging.INFO)
-
-# Avoid duplicate handlers if already added
 if not logger.handlers:
     console_handler = logging.StreamHandler()
-    file_handler = logging.FileHandler("arima.log", mode='w')
+    file_handler = logging.FileHandler("arima.log", mode='w', encoding='utf-8')
     formatter = logging.Formatter(
         "[%(levelname)s] %(asctime)s - %(message)s", "%Y-%m-%d %H:%M:%S")
     console_handler.setFormatter(formatter)
@@ -109,7 +108,7 @@ def prepare_monthly_counts(df: pd.DataFrame, date_col: str = "publication-date")
     return series
 
 
-def impute_outliers_cusum(series: pd.Series) -> pd.Series:
+def impute_outliers_cusum(series: pd.Series) -> Tuple[pd.Series, dict]:
     logger.info("Starting outlier imputation...")
     std = series.std()
     threshold = std * 1.5 if std and not pd.isna(std) else 1
@@ -122,6 +121,8 @@ def impute_outliers_cusum(series: pd.Series) -> pd.Series:
     logger.info(f"CUSUM detection took {time.time() - start:.2f}s")
 
     series_imputed = series.copy()
+    explanations = {}
+
     for idx in sorted(outlier_idx):
         original_value = series_imputed.iloc[idx]
         imputed_value = np.nan
@@ -145,15 +146,21 @@ def impute_outliers_cusum(series: pd.Series) -> pd.Series:
                 imputed_value = prev_val
 
         if pd.notna(imputed_value):
+            series_imputed.iloc[idx] = imputed_value
+            deviation = abs(original_value - series.mean()) / \
+                (series.mean() + 1e-6)
+            explanations[idx] = (
+                f"Detected spike: value={original_value:.0f}, "
+                f"mean={series.mean():.0f}, deviation={deviation:.2f}x"
+            )
             logger.info(
                 f"Imputed index {idx}: {original_value:.2f} -> {imputed_value:.2f}")
-            series_imputed.iloc[idx] = imputed_value
         else:
             logger.warning(
                 f"Could not impute value at index {idx} - original={original_value:.2f}")
 
     logger.info("Outlier imputation complete.")
-    return series_imputed
+    return series_imputed, explanations
 
 
 def train_and_forecast_arima(
@@ -172,7 +179,7 @@ def train_and_forecast_arima(
     logger.info(f"Train size: {len(train)}, Test size: {len(test)}")
 
     start_time = time.time()
-    model = ARIMA(train, order=order, freq='ME')
+    model = ARIMA(train, order=order, freq="ME")
     model_fit = model.fit()
     logger.info(f"Model training completed in {time.time() - start_time:.2f}s")
 
@@ -186,8 +193,10 @@ def train_and_forecast_arima(
     else:
         logger.warning("Test set is empty, skipping prediction.")
 
-    forecast_index = pd.date_range(start=series.index[-1] + pd.DateOffset(months=1),
-                                   periods=forecast_steps, freq='ME')
+    forecast_index = pd.date_range(
+        start=series.index[-1] + pd.DateOffset(months=1),
+        periods=forecast_steps, freq="ME"
+    )
     forecast = model_fit.forecast(steps=forecast_steps)
     forecast = pd.Series(forecast.values, index=forecast_index)
 

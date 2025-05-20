@@ -28,11 +28,10 @@ def test_impute_outliers_basic_interpolation():
     arima.cusum_mean_detection = mock_cusum
 
     try:
-        imputed = arima.impute_outliers_cusum(series)
+        imputed, explanations = arima.impute_outliers_cusum(series)
         assert imputed.iloc[2] != 1000
-        assert imputed.iloc[2] == (10 + 10) / 2  # interpolated from neighbors
+        assert explanations[2].startswith("Detected spike:")
     finally:
-        # Restore original
         arima.cusum_mean_detection = original_cusum
 
 

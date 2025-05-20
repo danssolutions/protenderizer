@@ -26,7 +26,7 @@ def test_detect_outliers_pipeline_performance(benchmark):
 
     def run_pipeline():
         series = arima.prepare_monthly_counts(df)
-        series_imp = arima.impute_outliers_cusum(series)
+        series_imp, _ = arima.impute_outliers_cusum(series)
         # Use a small ARIMA order for speed in test, or patch ARIMA.fit if needed
         train, test, forecast = arima.train_and_forecast_arima(
             series_imp, order=(4, 2, 3), forecast_steps=12, plot=False)
