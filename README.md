@@ -1,3 +1,4 @@
+![image](logo.png)
 # protenderizer
 
 **protenderizer** is a command-line tool for analyzing public procurement data from the EU’s [Tenders Electronic Daily (TED)](https://ted.europa.eu/). It supports data retrieval, preprocessing, storage, anomaly detection using time series and CUSUM-based outlier detection, and exporting analytical results.
