@@ -28,8 +28,8 @@ def test_detect_outliers_pipeline_performance(benchmark):
         series = arima.prepare_monthly_counts(df)
         series_imp, _ = arima.impute_outliers_cusum(series)
         # Use a small ARIMA order for speed in test, or patch ARIMA.fit if needed
-        train, test, forecast = arima.train_and_forecast_arima(
-            series_imp, order=(4, 2, 3), forecast_steps=12, plot=False)
+        train, test, _, forecast = arima.train_and_forecast_arima(
+            series_imp, order=(4, 2, 3), forecast_steps=12)
         return forecast
     result_forecast = benchmark(run_pipeline)
     # After benchmarking, optionally verify forecast length
@@ -41,6 +41,6 @@ def test_arima_forecast_performance(benchmark):
     index = pd.date_range("2010-01-31", periods=120, freq="ME")
     series = pd.Series(np.random.rand(120), index=index)
     # Time the ARIMA training+forecast
-    train, test, forecast = benchmark(lambda: arima.train_and_forecast_arima(
-        series, order=(4, 2, 3), forecast_steps=12, plot=False))
+    train, test, _, forecast = benchmark(lambda: arima.train_and_forecast_arima(
+        series, order=(4, 2, 3), forecast_steps=12))
     assert len(forecast) == 12

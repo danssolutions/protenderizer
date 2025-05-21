@@ -48,7 +48,7 @@ def test_arima_training_and_forecast():
         warnings.simplefilter("ignore", ConvergenceWarning)
         index = pd.date_range("2020-01-01", periods=24, freq="ME")
         series = pd.Series(np.arange(24), index=index)
-        train, test, forecast = arima.train_and_forecast_arima(series)
+        train, test, _, forecast = arima.train_and_forecast_arima(series)
         assert len(forecast) == 12
         assert all(forecast.index > series.index[-1])
 

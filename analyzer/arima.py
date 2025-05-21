@@ -1,13 +1,10 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_squared_error
-import warnings
 from typing import Tuple
 import logging
 import time
-from typing import Tuple
 
 logger = logging.getLogger("ARIMA")
 logger.setLevel(logging.INFO)
@@ -20,8 +17,6 @@ if not logger.handlers:
     file_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
-
-warnings.filterwarnings("ignore")
 
 
 def cusum_mean_detection(series, target_mean=None, threshold=5.0, drift=0.5, min_change_magnitude=0):
@@ -120,7 +115,7 @@ def impute_outliers_cusum(series: pd.Series) -> Tuple[pd.Series, dict]:
         series, threshold=threshold, drift=drift, min_change_magnitude=min_mag)
     logger.info(f"CUSUM detection took {time.time() - start:.2f}s")
 
-    series_imputed = series.copy()
+    series_imputed = series.astype(float).copy()
     explanations = {}
 
     for idx in sorted(outlier_idx):
@@ -167,9 +162,10 @@ def train_and_forecast_arima(
     series: pd.Series,
     order=(4, 2, 3),
     forecast_steps=12,
-    plot=False,
-    plot_path=None
-) -> Tuple[pd.Series, pd.Series, pd.Series]:
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+    """
+    Trains an ARIMA model and returns the train, test, predictions, and forecast series.
+    """
     logger.info("Starting ARIMA training and forecasting...")
     if len(series) < 12:
         raise ValueError("Insufficient data for training")
@@ -179,7 +175,9 @@ def train_and_forecast_arima(
     logger.info(f"Train size: {len(train)}, Test size: {len(test)}")
 
     start_time = time.time()
-    model = ARIMA(train, order=order, freq="ME")
+    model = ARIMA(train, order=order, freq="ME",
+                  enforce_stationarity=False,
+                  enforce_invertibility=False)
     model_fit = model.fit()
     logger.info(f"Model training completed in {time.time() - start_time:.2f}s")
 
@@ -195,36 +193,11 @@ def train_and_forecast_arima(
 
     forecast_index = pd.date_range(
         start=series.index[-1] + pd.DateOffset(months=1),
-        periods=forecast_steps, freq="ME"
+        periods=forecast_steps,
+        freq="ME"
     )
     forecast = model_fit.forecast(steps=forecast_steps)
     forecast = pd.Series(forecast.values, index=forecast_index)
 
-    if plot:
-        plt.figure(figsize=(14, 8))
-        plt.plot(series.index, series, label='Original',
-                 linestyle=':', color='grey')
-        plt.plot(train.index, train, label='Train', color='blue')
-        if not test.empty:
-            plt.plot(test.index, test, label='Test', color='green')
-        if not predictions.empty:
-            plt.plot(predictions.index, predictions,
-                     label='Predicted', color='orange', linestyle='--')
-        if not forecast.empty:
-            plt.plot(forecast.index, forecast, label='Forecast',
-                     color='red', linestyle='--')
-        plt.title("ARIMA Forecast with CUSUM Imputation")
-        plt.xlabel("Date")
-        plt.ylabel("Notices")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        if plot_path:
-            plt.savefig(plot_path)
-            logger.info(f"Saved plot to {plot_path}")
-            plt.close("all")
-        else:
-            plt.show()
-
     logger.info(f"Forecast complete. {forecast_steps} steps generated.")
-    return train, test, forecast
+    return train, test, predictions, forecast

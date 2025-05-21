@@ -5,7 +5,7 @@ import os
 import sqlalchemy
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from analyzer import api, preprocessing, storage, sync as sync_module, arima
+from analyzer import api, preprocessing, storage, sync as sync_module, arima, visualization
 
 load_dotenv()
 
@@ -149,9 +149,7 @@ def sync(interval, start_days_ago, filters, output, output_file, db, table):
 @click.option("--output-file", required=False)
 @click.option("--arima-order", default="4,2,3", help="ARIMA order as comma-separated values (p,d,q). Default is 4,2,3")
 @click.option("--forecast-steps", default=12, show_default=True, help="Number of future months to forecast.")
-@click.option("--plot", is_flag=True, help="Generate and save a forecast plot.")
-@click.option("--plot-file", required=False, help="Path to save the plot if --plot is enabled.")
-def detect_outliers(db, table, output, output_file, arima_order, forecast_steps, plot, plot_file):
+def detect_outliers(db, table, output, output_file, arima_order, forecast_steps):
     try:
         db_config = resolve_db_config(db)
         engine = sqlalchemy.create_engine(
@@ -164,18 +162,16 @@ def detect_outliers(db, table, output, output_file, arima_order, forecast_steps,
             chunks = pd.read_sql_table(table, con=connection, chunksize=10000)
             df = pd.concat(chunks, ignore_index=True)
 
-        # Compute and impute
+        # Time series aggregation and anomaly detection
         series = arima.prepare_monthly_counts(df)
         series_imputed, explanations = arima.impute_outliers_cusum(series)
-        train, test, forecast = arima.train_and_forecast_arima(
+        train, test, predictions, forecast = arima.train_and_forecast_arima(
             series_imputed,
             order=arima_order_tuple,
-            forecast_steps=forecast_steps,
-            plot=plot,
-            plot_path=plot_file
+            forecast_steps=forecast_steps
         )
 
-        # Merge results
+        # Assemble output
         output_file = resolve_output_settings(output, output_file)
         full_index = series_imputed.index.union(forecast.index)
 
@@ -183,14 +179,17 @@ def detect_outliers(db, table, output, output_file, arima_order, forecast_steps,
         result_df["count"] = series.reindex(full_index)
         result_df["imputed"] = series_imputed.reindex(full_index)
         result_df["forecast"] = forecast.reindex(full_index)
+        result_df["train"] = train.reindex(full_index)
+        result_df["test"] = test.reindex(full_index)
+        result_df["predicted"] = predictions.reindex(full_index)
 
-        # Add human-readable explanations
+        # Insert CUSUM anomaly explanations
         result_df["explanation"] = None
         for idx, reason in explanations.items():
             ts_index = series_imputed.index[idx]
             result_df.loc[ts_index, "explanation"] = reason
 
-        # Final output
+        # Export
         result_df = result_df.reset_index().rename(columns={"index": "date"})
 
         if output == "csv":
@@ -273,3 +272,31 @@ def list_outliers(input, start_date, end_date, filter, min_cost_deviation, min_b
                     [c for c in df.columns if c not in existing_cols]].copy()
 
     click.echo(display_df.to_markdown(index=False, tablefmt="grid"))
+
+
+@cli.command("plot-outliers", help="Visualize existing outlier analysis result as a plot.")
+@click.option("--input", required=True, help="Path to CSV or JSON result file.")
+@click.option("--plot-file", required=False, help="Output path to save the plot as PNG.")
+def plot_outliers(input, plot_file):
+    if not os.path.exists(input):
+        click.echo(f"Input file '{input}' not found.")
+        return
+
+    ext = os.path.splitext(input)[-1].lower()
+    if ext == ".csv":
+        df = pd.read_csv(input)
+    elif ext == ".json":
+        df = pd.read_json(input)
+    else:
+        click.echo("Unsupported file format. Must be CSV or JSON.")
+        return
+
+    try:
+        visualization.plot_forecast_results(
+            df,
+            plot_path=plot_file
+        )
+        if plot_file:
+            click.echo(f"Saved visualization to {plot_file}")
+    except Exception as e:
+        raise click.ClickException(f"Failed to plot: {e}")
