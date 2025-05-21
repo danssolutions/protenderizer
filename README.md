@@ -7,15 +7,15 @@
 
 ## Features
 
-- ✅ **Retrieve procurement data** from TED API using pagination or scroll mode
-- ✅ **Filter by date, region, and contract type**
-- ✅ **Scheduled sync** support via CLI or background execution
-- ✅ **Preprocessing** of numeric and categorical fields for machine learning
-- ✅ **Automatic PostgreSQL storage** with schema inference and extension
-- ✅ **Anomaly detection** using ARIMA forecasting and CUSUM outlier detection
-- ✅ **Forecasting** procurement trends into the future
-- ✅ **CLI export** to JSON or CSV with attribution
-- ✅ **Modular design**, easily extensible for future GUI or ML models
+- **Retrieve procurement data** from TED API using pagination or scroll mode
+- **Filter by date, region, and contract type**
+- **Scheduled sync** support via CLI or background execution
+- **Preprocessing** of numeric and categorical fields for machine learning
+- **Automatic PostgreSQL storage** with schema inference and extension
+- **Anomaly detection** using ARIMA forecasting and CUSUM outlier detection
+- **Forecasting** procurement trends into the future
+- **CLI export** to JSON or CSV with attribution
+- **Modular design**, easily extensible for future GUI or ML models
 
 ---
 
@@ -103,7 +103,7 @@ pytest -v
 
 ## Data Attribution
 
-> All data retrieved using `protenderizer` is sourced from the EU’s Tenders Electronic Daily (TED) and is subject to the TED API’s legal disclaimer and copyright policies.
+All data retrieved using `protenderizer` is sourced from the EU’s Tenders Electronic Daily (TED) and is subject to the TED API’s legal disclaimer and copyright policies.
 
 
 ---
