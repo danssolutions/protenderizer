@@ -39,16 +39,21 @@ def plot_forecast_results(df: pd.DataFrame, plot_path: str = None):
                  linestyle=":", color="grey")
     if "train" in df.columns and df["train"].notna().any():
         plt.plot(df.index, df["train"], label="Train", color="blue")
+        plt.axvline(x=df["train"].last_valid_index(), color="black",
+                    linestyle="--", alpha=0.5, label="Train/Test Split")
     if "test" in df.columns and df["test"].notna().any():
         plt.plot(df.index, df["test"], label="Test", color="green")
+        plt.axvline(x=df["test"].last_valid_index(), color="black",
+                    linestyle="--", alpha=0.5, label="End of Test Data")
     if "predicted" in df.columns and df["predicted"].notna().any():
         plt.plot(df.index, df["predicted"],
-                 label="Predicted", color="orange", linestyle="--")
+                 label="In-Sample Prediction", color="orange", linestyle="--")
     if "forecast" in df.columns and df["forecast"].notna().any():
         plt.plot(df.index, df["forecast"],
-                 label="Forecast", color="red", linestyle="--")
+                 label="Out-of-Sample Forecast", color="red", linestyle="--")
 
-    plt.title("Procurement Notice Forecast with ARIMA + CUSUM")
+    plt.title(
+        "Procurement Notice Count – Historical, Prediction, and Out-of-Sample Forecast")
     plt.xlabel("Date")
     plt.ylabel("Notice Count")
     plt.legend()
