@@ -142,6 +142,50 @@ def sync(interval, start_days_ago, filters, output, output_file, db, table):
     )
 
 
+@cli.command("preprocess", help="Preprocess notices from input file and optionally upload to PostgreSQL or save locally.")
+@click.option("--input", required=True, help="Input CSV or JSON file.")
+@click.option("--output", type=click.Choice(["none", "csv", "json", "db"]), default="csv", show_default=True)
+@click.option("--output-file", required=False, help="Filename to store output if saving locally.")
+@click.option("--db", "--db-url", required=False, help="PostgreSQL connection URL (overrides DB_URL env)")
+@click.option("--table", "--db-table", default="notices", show_default=True)
+def preprocess(input, output, output_file, db, table):
+    if not os.path.exists(input):
+        raise click.ClickException(f"Input file '{input}' does not exist.")
+
+    ext = os.path.splitext(input)[-1].lower()
+    if ext == ".csv":
+        # df = pd.read_csv(input)
+        df = pd.read_csv(input, dtype=str, engine="python",
+                         quotechar='"', escapechar='\\')
+    elif ext == ".json":
+        df = pd.read_json(input)
+    else:
+        raise click.ClickException(
+            "Unsupported input format. Use CSV or JSON.")
+
+    try:
+        df_cleaned = preprocessing.preprocess_notices(df)
+    except Exception as e:
+        raise click.ClickException(f"Preprocessing failed: {e}")
+
+    if output == "db":
+        db_config = resolve_db_config(db)
+        storage.store_dataframe_to_postgres(df_cleaned, table, db_config)
+        click.echo(
+            f"Stored {len(df_cleaned)} records to table '{table}' in PostgreSQL.")
+    elif output in ("csv", "json"):
+        output_file = resolve_output_settings(output, output_file)
+        if output == "csv":
+            df_cleaned.to_csv(output_file, index=False)
+        else:
+            df_cleaned.to_json(output_file, orient="records",
+                               indent=2, date_format="iso")
+        click.echo(f"Saved processed output to {output_file}")
+    else:
+        click.echo(
+            f"Processed {len(df_cleaned)} records but did not save output.")
+
+
 @cli.command("detect-outliers", help="Detect outliers using time-series ARIMA + CUSUM.")
 @click.option("--db", "--db-url", required=False)
 @click.option("--table", "--db-table", default="notices", show_default=True)
