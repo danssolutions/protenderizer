@@ -23,15 +23,16 @@ Container_Boundary(main_system, "Main System") {
     ContainerDb(database, "Data Store", "PostgreSQL")
 }
 
-Rel(user, cli, "")
-Rel_Right(cli, data_retrieval, "")
-Rel_Right(data_retrieval, ted, "")
-Rel(data_retrieval, data_preprocessing, "")
-Rel(cli, machine_learning, "")
-Rel_Left(cli, data_visualization, "")
-Rel_Down(machine_learning, data_storage, "")
-Rel(data_preprocessing, data_storage, "")
-Rel_Right(data_storage, database, "")
-Rel(data_visualization, data_storage, "")
+BiRel(user, cli, "")
+BiRel_Right(cli, data_retrieval, "")
+BiRel_Down(cli, data_preprocessing, "")
+Rel_Right(ted, data_retrieval, "")
+BiRel(data_retrieval, data_preprocessing, "")
+BiRel(cli, machine_learning, "")
+BiRel(cli, data_visualization, "")
+Rel_Left(data_storage, machine_learning, "")
+BiRel_Down(data_preprocessing, data_storage, "")
+BiRel_Right(data_storage, database, "")
+Rel_Up(data_storage, data_visualization, "")
 
 @enduml
