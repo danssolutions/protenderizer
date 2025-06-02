@@ -1,0 +1,23 @@
+@startuml usecase
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "User" as user
+
+rectangle "protenderizer CLI Tool" {
+    usecase "Fetch TED notices from API" as UC1
+    usecase "Sync notices regularly" as UC2
+    usecase "Store notices to database" as UC3
+    usecase "Detect outliers" as UC4
+    usecase "List/filter outliers" as UC5
+    usecase "Generate forecast plot" as UC6
+}
+
+user --> UC1
+user --> UC2
+user --> UC3
+user --> UC4
+user --> UC5
+user --> UC6
+@enduml
